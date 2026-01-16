@@ -1,0 +1,52 @@
+---
+title: "Docker 멀티 스테이지 빌드 마스터하기"
+description: "Docker 멀티 스테이지 빌드를 활용하여 최적화된 프로덕션 이미지를 만드는 방법을 알아봅니다."
+category: "docker"
+tags: ["docker", "container", "devops", "optimization"]
+createdAt: "2026-01-13"
+updatedAt: "2026-01-13"
+published: true
+---
+
+# Docker 멀티 스테이지 빌드 마스터하기
+
+멀티 스테이지 빌드는 Docker 이미지 크기를 획기적으로 줄이는 핵심 기법입니다.
+
+## 멀티 스테이지 빌드란?
+
+하나의 Dockerfile에서 여러 개의 FROM 명령어를 사용하여 빌드 단계를 분리하는 기법입니다.
+
+## 실전 예제: Node.js 애플리케이션
+
+```dockerfile
+# 빌드 스테이지
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# 프로덕션 스테이지
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+```
+
+## 이미지 크기 비교
+
+| 방식          | 이미지 크기 |
+| ------------- | ----------- |
+| 단일 스테이지 | ~1.2GB      |
+| 멀티 스테이지 | ~150MB      |
+
+## 결론
+
+멀티 스테이지 빌드는 프로덕션 환경에서 필수적인 최적화 기법입니다. 빌드 도구와 개발 의존성을 최종 이미지에서 제외하여 보안과 성능을 동시에 향상시킬 수 있습니다.

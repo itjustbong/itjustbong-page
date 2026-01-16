@@ -1,0 +1,49 @@
+---
+title: "Next.js App Router 완벽 가이드"
+description: "Next.js 14의 App Router를 활용한 모던 웹 애플리케이션 개발 방법을 알아봅니다."
+category: "frontend"
+tags: ["nextjs", "react", "app-router", "ssr"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+# Next.js App Router 완벽 가이드
+
+Next.js 13부터 도입된 App Router는 React Server Components를 기반으로 한 새로운 라우팅 시스템입니다.
+
+## App Router의 주요 특징
+
+### 1. 파일 기반 라우팅
+
+App Router는 `app` 디렉토리 내의 폴더 구조를 기반으로 라우트를 자동 생성합니다.
+
+```typescript
+// app/posts/[slug]/page.tsx
+export default function PostPage({ params }: { params: { slug: string } }) {
+  return <div>Post: {params.slug}</div>;
+}
+```
+
+### 2. 레이아웃 시스템
+
+중첩 레이아웃을 통해 UI를 효율적으로 구성할 수 있습니다.
+
+```typescript
+// app/layout.tsx
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="ko">
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+### 3. Server Components
+
+기본적으로 모든 컴포넌트가 Server Component로 동작하여 번들 크기를 줄이고 성능을 향상시킵니다.
+
+## 결론
+
+App Router는 모던 웹 개발의 새로운 표준이 되어가고 있습니다. SSG, SSR, ISR을 유연하게 활용하여 최적의 사용자 경험을 제공할 수 있습니다.
