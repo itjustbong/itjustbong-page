@@ -1,5 +1,6 @@
 import { compileMDX } from "next-mdx-remote/rsc";
 import rehypeHighlight from "rehype-highlight";
+import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import type { Category } from "@/types";
 
@@ -21,7 +22,7 @@ export async function compileMDXContent(source: string) {
       parseFrontmatter: true,
       mdxOptions: {
         remarkPlugins: [remarkGfm],
-        rehypePlugins: [rehypeHighlight],
+        rehypePlugins: [rehypeSlug, rehypeHighlight],
       },
     },
   });
@@ -30,7 +31,7 @@ export async function compileMDXContent(source: string) {
 }
 
 export function extractHeadings(
-  content: string,
+  content: string
 ): { id: string; text: string; level: number }[] {
   const headingRegex = /^(#{1,6})\s+(.+)$/gm;
   const headings: { id: string; text: string; level: number }[] = [];

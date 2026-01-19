@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { ThemeProvider } from "@/components/providers";
 import { Header, Footer } from "@/components/layout";
+import { generateWebSiteStructuredData } from "@/lib/structured-data";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -44,9 +45,19 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const websiteStructuredData = generateWebSiteStructuredData();
+
   return (
     <html lang="ko" suppressHydrationWarning>
       <head>
+        {/* JSON-LD Structured Data for WebSite */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(websiteStructuredData),
+          }}
+        />
+
         {/* Google AdSense */}
         {process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID && (
           <Script
