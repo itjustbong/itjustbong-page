@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import matter from "gray-matter";
-import type { Post, PostMeta, Category } from "@/types";
+import type { Post, PostMeta, Category, Draft } from "@/types";
 
 const POSTS_DIR = path.join(process.cwd(), "content/posts");
 
@@ -27,14 +27,14 @@ export async function getAllPosts(): Promise<PostMeta[]> {
             updatedAt: data.updatedAt,
             published: data.published,
           } as PostMeta;
-        }),
+        })
     );
 
     return posts
       .filter((post) => post.published !== false)
       .sort(
         (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
   } catch {
     return [];
@@ -66,7 +66,7 @@ export async function getPostBySlug(slug: string): Promise<Post | null> {
 }
 
 export async function getPostsByCategory(
-  category: Category,
+  category: Category
 ): Promise<PostMeta[]> {
   const allPosts = await getAllPosts();
   return allPosts.filter((post) => post.category === category);
@@ -94,7 +94,7 @@ export async function getAllSlugs(): Promise<string[]> {
 
 export async function createPost(
   slug: string,
-  postData: Omit<Post, "slug">,
+  postData: Omit<Post, "slug">
 ): Promise<void> {
   const frontmatter = {
     title: postData.title,
@@ -115,7 +115,7 @@ export async function createPost(
 
 export async function updatePost(
   slug: string,
-  postData: Partial<Omit<Post, "slug">>,
+  postData: Partial<Omit<Post, "slug">>
 ): Promise<void> {
   const existingPost = await getPostBySlug(slug);
   if (!existingPost) {
@@ -133,5 +133,52 @@ export async function updatePost(
 
 export async function deletePost(slug: string): Promise<void> {
   const filePath = path.join(POSTS_DIR, `${slug}.mdx`);
+  await fs.unlink(filePath);
+}
+
+// Draft management
+const DRAFTS_DIR = path.join(process.cwd(), "content/drafts");
+
+export async function getAllDrafts(): Promise<Draft[]> {
+  try {
+    await fs.mkdir(DRAFTS_DIR, { recursive: true });
+    const files = await fs.readdir(DRAFTS_DIR);
+    const drafts = await Promise.all(
+      files
+        .filter((file) => file.endsWith(".json"))
+        .map(async (file) => {
+          const filePath = path.join(DRAFTS_DIR, file);
+          const content = await fs.readFile(filePath, "utf-8");
+          return JSON.parse(content) as Draft;
+        })
+    );
+
+    return drafts.sort(
+      (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+    );
+  } catch {
+    return [];
+  }
+}
+
+export async function getDraftById(id: string): Promise<Draft | null> {
+  const filePath = path.join(DRAFTS_DIR, `${id}.json`);
+
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    return JSON.parse(content) as Draft;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveDraft(draft: Draft): Promise<void> {
+  await fs.mkdir(DRAFTS_DIR, { recursive: true });
+  const filePath = path.join(DRAFTS_DIR, `${draft.id}.json`);
+  await fs.writeFile(filePath, JSON.stringify(draft, null, 2), "utf-8");
+}
+
+export async function deleteDraft(id: string): Promise<void> {
+  const filePath = path.join(DRAFTS_DIR, `${id}.json`);
   await fs.unlink(filePath);
 }

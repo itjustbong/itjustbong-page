@@ -106,3 +106,44 @@ export async function isAuthenticated(): Promise<boolean> {
   const user = await getCurrentUser();
   return user !== null && user.authenticated;
 }
+
+/**
+ * API 요청 인증 검증 (NextRequest 기반)
+ */
+export async function verifyAuth(
+  request: Request
+): Promise<{ success: boolean; user?: AuthUser }> {
+  try {
+    // 쿠키에서 토큰 가져오기
+    const cookieHeader = request.headers.get("cookie");
+    if (!cookieHeader) {
+      return { success: false };
+    }
+
+    // 쿠키 파싱
+    const cookies = cookieHeader.split(";").reduce(
+      (acc, cookie) => {
+        const [key, value] = cookie.trim().split("=");
+        acc[key] = value;
+        return acc;
+      },
+      {} as Record<string, string>
+    );
+
+    const token = cookies[TOKEN_NAME];
+    if (!token) {
+      return { success: false };
+    }
+
+    // 토큰 검증
+    const user = await verifyToken(token);
+    if (!user) {
+      return { success: false };
+    }
+
+    return { success: true, user };
+  } catch (error) {
+    console.error("Auth verification failed:", error);
+    return { success: false };
+  }
+}

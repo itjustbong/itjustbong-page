@@ -1,16 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
-import { getAllPosts, createPost } from "@/lib/posts";
-import { revalidatePath } from "next/cache";
+import { getAllDrafts, saveDraft } from "@/lib/posts";
+import { Draft } from "@/types";
 
-// GET /api/posts - 모든 글 목록 조회
-export async function GET() {
+// GET /api/drafts - 모든 임시저장 목록 조회
+export async function GET(request: NextRequest) {
+  // 인증 확인
+  const authResult = await verifyAuth(request);
+  if (!authResult.success) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "AUTH_ERROR",
+          message: "인증에 실패했습니다.",
+        },
+      },
+      { status: 401 }
+    );
+  }
+
   try {
-    const posts = await getAllPosts();
+    const drafts = await getAllDrafts();
     return NextResponse.json({
       success: true,
-      posts,
-      total: posts.length,
+      drafts,
+      total: drafts.length,
     });
   } catch (error) {
     return NextResponse.json(
@@ -18,7 +33,7 @@ export async function GET() {
         success: false,
         error: {
           code: "FETCH_ERROR",
-          message: "글 목록을 불러오는데 실패했습니다.",
+          message: "임시저장 목록을 불러오는데 실패했습니다.",
         },
       },
       { status: 500 }
@@ -26,7 +41,7 @@ export async function GET() {
   }
 }
 
-// POST /api/posts - 새 글 발행
+// POST /api/drafts - 임시저장
 export async function POST(request: NextRequest) {
   // 인증 확인
   const authResult = await verifyAuth(request);
@@ -45,53 +60,47 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { slug, title, description, content, category, tags, thumbnail } =
-      body;
+    const { id, title, description, content, category, tags, thumbnail } = body;
 
     // 필수 필드 검증
-    if (!slug || !title || !content || !category) {
+    if (!category) {
       return NextResponse.json(
         {
           success: false,
           error: {
             code: "VALIDATION_ERROR",
-            message: "필수 필드가 누락되었습니다.",
+            message: "카테고리는 필수입니다.",
           },
         },
         { status: 400 }
       );
     }
 
-    // 글 생성
-    await createPost(slug, {
-      title,
+    const draft: Draft = {
+      id: id || `draft-${Date.now()}`,
+      title: title || "",
       description: description || "",
-      content,
+      content: content || "",
       category,
       tags: tags || [],
       thumbnail: thumbnail || undefined,
-      createdAt: new Date().toISOString().split("T")[0],
-      updatedAt: new Date().toISOString().split("T")[0],
-      published: true,
-    });
+      savedAt: new Date().toISOString(),
+    };
 
-    // ISR 재검증
-    revalidatePath("/");
-    revalidatePath(`/posts/${slug}`);
-    revalidatePath(`/category/${category}`);
+    await saveDraft(draft);
 
     return NextResponse.json({
       success: true,
-      message: "글이 성공적으로 발행되었습니다.",
-      slug,
+      message: "임시저장되었습니다.",
+      draft,
     });
   } catch (error) {
     return NextResponse.json(
       {
         success: false,
         error: {
-          code: "CREATE_ERROR",
-          message: "글 발행에 실패했습니다.",
+          code: "SAVE_ERROR",
+          message: "임시저장에 실패했습니다.",
         },
       },
       { status: 500 }

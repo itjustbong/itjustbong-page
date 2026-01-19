@@ -1,19 +1,41 @@
 "use client";
 
-import { useRef, useEffect } from 'react';
-import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useRef, useEffect, ReactNode } from "react";
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 gsap.registerPlugin(ScrollTrigger);
+
+interface AnimatedContentProps {
+  children: ReactNode;
+  container?: string | HTMLElement | null;
+  distance?: number;
+  direction?: "vertical" | "horizontal";
+  reverse?: boolean;
+  duration?: number;
+  ease?: string;
+  initialOpacity?: number;
+  animateOpacity?: boolean;
+  scale?: number;
+  threshold?: number;
+  delay?: number;
+  disappearAfter?: number;
+  disappearDuration?: number;
+  disappearEase?: string;
+  onComplete?: () => void;
+  onDisappearanceComplete?: () => void;
+  className?: string;
+  [key: string]: unknown;
+}
 
 const AnimatedContent = ({
   children,
   container,
   distance = 100,
-  direction = 'vertical',
+  direction = "vertical",
   reverse = false,
   duration = 0.8,
-  ease = 'power3.out',
+  ease = "power3.out",
   initialOpacity = 0,
   animateOpacity = true,
   scale = 1,
@@ -21,25 +43,28 @@ const AnimatedContent = ({
   delay = 0,
   disappearAfter = 0,
   disappearDuration = 0.5,
-  disappearEase = 'power3.in',
+  disappearEase = "power3.in",
   onComplete,
   onDisappearanceComplete,
-  className = '',
+  className = "",
   ...props
-}) => {
+}: AnimatedContentProps) => {
   const ref = useRef(null);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
-    let scrollerTarget = container || document.getElementById('snap-main-container') || null;
+    let scrollerTarget: string | HTMLElement | null =
+      container || document.getElementById("snap-main-container") || null;
 
-    if (typeof scrollerTarget === 'string') {
-      scrollerTarget = document.querySelector(scrollerTarget);
+    if (typeof scrollerTarget === "string") {
+      scrollerTarget = document.querySelector(
+        scrollerTarget
+      ) as HTMLElement | null;
     }
 
-    const axis = direction === 'horizontal' ? 'x' : 'y';
+    const axis = direction === "horizontal" ? "x" : "y";
     const offset = reverse ? -distance : distance;
     const startPct = (1 - threshold) * 100;
 
@@ -47,7 +72,7 @@ const AnimatedContent = ({
       [axis]: offset,
       scale,
       opacity: animateOpacity ? initialOpacity : 1,
-      visibility: 'visible'
+      visibility: "visible",
     });
 
     const tl = gsap.timeline({
@@ -63,10 +88,10 @@ const AnimatedContent = ({
             delay: disappearAfter,
             duration: disappearDuration,
             ease: disappearEase,
-            onComplete: () => onDisappearanceComplete?.()
+            onComplete: () => onDisappearanceComplete?.(),
           });
         }
-      }
+      },
     });
 
     tl.to(el, {
@@ -74,7 +99,7 @@ const AnimatedContent = ({
       scale: 1,
       opacity: 1,
       duration,
-      ease
+      ease,
     });
 
     const st = ScrollTrigger.create({
@@ -82,7 +107,7 @@ const AnimatedContent = ({
       scroller: scrollerTarget,
       start: `top ${startPct}%`,
       once: true,
-      onEnter: () => tl.play()
+      onEnter: () => tl.play(),
     });
 
     return () => {
@@ -105,11 +130,16 @@ const AnimatedContent = ({
     disappearDuration,
     disappearEase,
     onComplete,
-    onDisappearanceComplete
+    onDisappearanceComplete,
   ]);
 
   return (
-    <div ref={ref} className={className} style={{ visibility: 'hidden' }} {...props}>
+    <div
+      ref={ref}
+      className={className}
+      style={{ visibility: "hidden" }}
+      {...props}
+    >
       {children}
     </div>
   );
