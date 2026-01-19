@@ -43,16 +43,21 @@ export async function createToken(username: string): Promise<string> {
 /**
  * JWT 토큰 검증
  */
-export async function verifyToken(token: string): Promise<AuthUser | null> {
+export async function verifyToken(
+  token: string
+): Promise<{ success: boolean; user?: AuthUser }> {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
     return {
-      username: payload.username as string,
-      authenticated: true,
+      success: true,
+      user: {
+        username: payload.username as string,
+        authenticated: true,
+      },
     };
   } catch (error) {
     console.error("Token verification failed:", error);
-    return null;
+    return { success: false };
   }
 }
 
@@ -96,7 +101,8 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     return null;
   }
 
-  return await verifyToken(token);
+  const result = await verifyToken(token);
+  return result.success ? result.user || null : null;
 }
 
 /**
@@ -136,12 +142,12 @@ export async function verifyAuth(
     }
 
     // 토큰 검증
-    const user = await verifyToken(token);
-    if (!user) {
+    const result = await verifyToken(token);
+    if (!result.success || !result.user) {
       return { success: false };
     }
 
-    return { success: true, user };
+    return { success: true, user: result.user };
   } catch (error) {
     console.error("Auth verification failed:", error);
     return { success: false };
