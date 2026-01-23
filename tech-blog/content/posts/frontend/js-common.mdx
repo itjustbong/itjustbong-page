@@ -1,0 +1,667 @@
+---
+title: "[JS Module] CommonJS 핵심 구조와 동작 원리"
+description: "CommonJS 핵심 구조와 동작 원리"
+category: "frontend"
+tags: ["javascript", "commonjs", "module", "require"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+
+# CommonJS 핵심 구조와 동작 원리
+
+이전 글에서 JavaScript 모듈 시스템의 역사를 살펴봤다면, 이번에는 **CommonJS(CJS)** 의 내부 동작 원리를 깊이 있게 파헤쳐보겠습니다. "어떻게 `require()`가 작동하는가?"라는 질문에 답할 수 있게 될 것입니다.
+
+## CommonJS란?
+
+CommonJS는 **브라우저 외부 환경에서 JavaScript 모듈 생태계의 규칙을 정의하기 위해 시작된 프로젝트(스펙)** 입니다. 단순히 코드를 불러오는 방법을 넘어, JavaScript가 서버 환경에서 제대로 작동하기 위한 전체적인 규칙을 정의했습니다.
+
+### CommonJS의 핵심 특징
+
+**1. 모듈 스펙**
+
+CommonJS의 모듈 시스템은 명확한 규칙을 가지고 있습니다:
+
+- **하나의 파일 = 하나의 모듈**
+- `exports` 객체로 모듈 내보내기
+- `require()` 함수로 모듈 불러오기
+
+```js
+// math.js - 모듈 정의
+exports.add = function (a, b) {
+  return a + b;
+};
+
+exports.subtract = function (a, b) {
+  return a - b;
+};
+
+// main.js - 모듈 사용
+const math = require("./math.js");
+console.log(math.add(5, 3)); // 8
+```
+
+**2. Module 객체**
+
+모든 CommonJS 모듈은 내부적으로 `module` 객체를 가지고 있습니다. 이 객체를 출력해보면:
+
+```js
+console.log(module);
+
+// 출력 결과
+{
+  id: '.',                           // 모듈의 고유 식별자
+  path: '/Users/project/src',        // 모듈이 위치한 디렉토리 경로
+  exports: {},                       // 외부로 내보낼 객체
+  filename: '/Users/project/src/index.js', // 모듈의 전체 파일 경로
+  loaded: false,                     // 모듈 로딩 완료 여부
+  children: [],                      // 이 모듈이 require한 다른 모듈들
+  paths: [                           // node_modules를 찾을 경로 목록
+    '/Users/project/src/node_modules',
+    '/Users/project/node_modules',
+    '/Users/node_modules',
+    '/node_modules'
+  ]
+}
+```
+
+이 `module` 객체는 모듈의 모든 메타데이터를 담고 있으며, CommonJS가 모듈을 관리하는 핵심 구조입니다.
+
+**3. package.json**
+
+CommonJS는 모듈을 패키지로 배포할 수 있도록 `package.json` 가이드도 제공합니다:
+
+```json
+{
+  "name": "my-math-library",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "lodash": "^4.17.21"
+  }
+}
+```
+
+## CommonJS 동작 원리 - 5단계 프로세스
+
+`require()` 함수를 호출하면 내부적으로 5단계의 프로세스가 진행됩니다. 각 단계를 자세히 살펴보겠습니다.
+
+### 1단계: Resolution (경로 해석)
+
+모듈의 경로를 확인하는 과정입니다. Node.js는 다음 순서로 모듈을 찾습니다:
+
+**① 내장 모듈 (Built-in Modules)**
+
+Node.js에 기본으로 포함된 모듈들입니다:
+
+```js
+const fs = require("fs"); // 파일 시스템
+const path = require("path"); // 경로 처리
+const http = require("http"); // HTTP 서버
+```
+
+내장 모듈은 가장 먼저 확인되며, 별도의 경로 없이 이름만으로 불러올 수 있습니다.
+
+**② 파일 경로 (File Modules)**
+
+상대 경로나 절대 경로로 지정된 모듈입니다:
+
+```js
+const math = require("./math.js"); // 상대 경로
+const utils = require("../utils/helper.js"); // 상위 디렉토리
+const config = require("/etc/config.js"); // 절대 경로
+```
+
+**③ 패키지 모듈 (Package Modules)**
+
+`node_modules` 디렉토리에서 찾는 외부 패키지입니다:
+
+```js
+const lodash = require("lodash");
+const express = require("express");
+```
+
+Node.js는 현재 디렉토리부터 시작해서 상위 디렉토리로 올라가며 `node_modules`를 탐색합니다:
+
+```
+현재 위치: /Users/project/src/controllers/userController.js
+
+탐색 순서:
+1. /Users/project/src/controllers/node_modules
+2. /Users/project/src/node_modules
+3. /Users/project/node_modules
+4. /Users/node_modules
+5. /node_modules
+```
+
+![모듈 탐색](https://velog.velcdn.com/images/qhdgkdbs/post/f549fac7-2ac9-4262-8070-2c3ca711787b/image.png)
+
+이 방식 덕분에 프로젝트 어디서든 같은 패키지를 일관되게 사용할 수 있습니다.
+
+### 2단계: Loading (모듈 로딩)
+
+모듈의 타입을 확인하고 적절한 방식으로 파싱 및 로드하는 과정입니다.
+
+Node.js는 파일 확장자에 따라 다른 로딩 방식을 사용합니다:
+
+```js
+// .js 파일 - 텍스트로 로딩
+const myModule = require("./module.js");
+
+// .json 파일 - JSON.parse()로 객체 변환
+const config = require("./config.json");
+// 내부적으로: JSON.parse(fs.readFileSync('./config.json', 'utf8'))
+
+// .node 파일 - C++ 바이너리 애드온 로드
+const nativeModule = require("./native.node");
+
+// 그 외 확장자 - 에러 발생
+const unknown = require("./file.txt"); // Error: Cannot find module
+```
+
+**실제 예시:**
+
+```json
+// config.json
+{
+  "port": 3000,
+  "database": {
+    "host": "localhost",
+    "name": "mydb"
+  }
+}
+```
+
+```js
+// app.js
+const config = require("./config.json");
+console.log(config.port); // 3000
+console.log(config.database.host); // localhost
+```
+
+JSON 파일을 require하면 자동으로 JavaScript 객체로 변환되어 편리하게 사용할 수 있습니다.
+
+### 3단계: Wrapping (코드 래핑)
+
+이 단계가 CommonJS의 핵심입니다! 모듈 코드를 함수로 감싸서 **독립적인 스코프**를 만듭니다.
+
+**원본 코드:**
+
+```js
+// math.js
+const PI = 3.14159;
+
+exports.add = function (a, b) {
+  return a + b;
+};
+```
+
+**실제로 실행되는 코드:**
+
+```js
+(function (exports, require, module, __filename, __dirname) {
+  // 여기에 원본 코드가 들어갑니다
+  const PI = 3.14159;
+
+  exports.add = function (a, b) {
+    return a + b;
+  };
+  // 함수 끝
+});
+```
+
+![래핑 관련 함수](https://velog.velcdn.com/images/qhdgkdbs/post/067b46f4-5bb0-4789-b246-d11b75fb0c25/image.png)
+
+**왜 래핑이 필요할까?**
+
+1. **스코프 격리**: 각 모듈의 변수가 전역 스코프를 오염시키지 않습니다
+2. **모듈 변수 제공**: `exports`, `require`, `module`, `__filename`, `__dirname`을 매개변수로 주입
+3. **캡슐화**: 모듈 내부 구현을 숨기고 필요한 것만 노출
+
+**실제 확인해보기:**
+
+```js
+// test.js
+console.log("exports:", exports);
+console.log("require:", typeof require);
+console.log("module:", module);
+console.log("__filename:", __filename);
+console.log("__dirname:", __dirname);
+
+// 출력:
+// exports: {}
+// require: function
+// module: { id: '.', exports: {}, ... }
+// __filename: /Users/project/test.js
+// __dirname: /Users/project
+```
+
+이 변수들은 전역 변수가 아니라 래핑 함수의 매개변수로 주입된 것입니다!
+
+### 4단계: Evaluation (코드 실행)
+
+래핑된 함수를 실행하여 모듈 내부 코드를 해석하는 과정입니다.
+
+```js
+// calculator.js
+console.log("Calculator module is loading...");
+
+const version = "1.0.0";
+
+function add(a, b) {
+  return a + b;
+}
+
+function multiply(a, b) {
+  return a * b;
+}
+
+// exports 객체에 함수 추가
+exports.add = add;
+exports.multiply = multiply;
+exports.version = version;
+
+console.log("Calculator module loaded!");
+```
+
+**실행 순서:**
+
+1. 변수 초기화 (`version = '1.0.0'`)
+2. 함수 정의 (`add`, `multiply`)
+3. 외부 라이브러리 로드 (다른 `require()` 호출)
+4. **실행 컨텍스트 생성**
+5. **exports 객체 구성**
+
+```js
+// main.js
+console.log("Main module starting...");
+const calc = require("./calculator.js");
+console.log("Main module continuing...");
+
+// 출력:
+// Main module starting...
+// Calculator module is loading...
+// Calculator module loaded!
+// Main module continuing...
+```
+
+중요한 점은 `require()`가 **동기적(synchronous)** 으로 실행된다는 것입니다. 모듈이 완전히 로드될 때까지 다음 코드가 실행되지 않습니다.
+
+### 5단계: Caching (결과 캐싱)
+
+로딩된 모듈을 메모리에 캐싱하는 과정입니다. 이는 성능 최적화의 핵심입니다.
+
+**캐싱의 동작:**
+
+```js
+// counter.js
+let count = 0;
+
+exports.increment = function () {
+  count++;
+  console.log("Count:", count);
+};
+
+exports.getCount = function () {
+  return count;
+};
+```
+
+```js
+// main.js
+const counter1 = require("./counter.js");
+const counter2 = require("./counter.js");
+
+counter1.increment(); // Count: 1
+counter2.increment(); // Count: 2
+
+console.log(counter1 === counter2); // true - 같은 객체!
+```
+
+**캐시 확인하기:**
+
+```js
+console.log(require.cache);
+
+// 출력 (일부):
+{
+  '/Users/project/counter.js': {
+    id: '/Users/project/counter.js',
+    exports: { increment: [Function], getCount: [Function] },
+    loaded: true,
+    ...
+  },
+  '/Users/project/main.js': {
+    id: '.',
+    exports: {},
+    loaded: false,
+    ...
+  }
+}
+```
+
+**캐싱의 장점:**
+
+1. **성능 향상**: 같은 모듈을 여러 번 로드해도 디스크 I/O는 한 번만 발생
+2. **싱글톤 패턴**: 모듈이 애플리케이션 전체에서 하나의 인스턴스만 유지
+3. **순환 참조 해결**: 캐시를 통해 무한 루프 방지
+
+**캐시 삭제하기:**
+
+```js
+// 특정 모듈 캐시 삭제
+delete require.cache[require.resolve("./counter.js")];
+
+// 이제 다시 require하면 새로 로드됨
+const freshCounter = require("./counter.js");
+```
+
+## CommonJS 실전 활용
+
+### 1. 모듈 스코프 분리
+
+CommonJS 모듈은 독립적인 스코프를 가집니다:
+
+```js
+// moduleA.js
+const secret = "This is private";
+const publicValue = "This is public";
+
+exports.publicValue = publicValue;
+// secret은 외부에서 접근 불가
+```
+
+```js
+// main.js
+const moduleA = require("./moduleA.js");
+
+console.log(moduleA.publicValue); // 'This is public'
+console.log(moduleA.secret); // undefined
+console.log(secret); // ReferenceError: secret is not defined
+```
+
+### 2. 조건부 모듈 로딩
+
+`require()`는 함수이므로 조건문 내부에서도 사용할 수 있습니다:
+
+```js
+// config.js
+const env = process.env.NODE_ENV || "development";
+
+let config;
+
+if (env === "production") {
+  config = require("./config.prod.js");
+} else if (env === "test") {
+  config = require("./config.test.js");
+} else {
+  config = require("./config.dev.js");
+}
+
+module.exports = config;
+```
+
+```js
+// app.js
+const config = require("./config.js");
+console.log(config.database.host); // 환경에 따라 다른 설정 로드
+```
+
+**동적 모듈 로딩:**
+
+```js
+// 사용자 입력에 따라 다른 플러그인 로드
+function loadPlugin(pluginName) {
+  try {
+    const plugin = require(`./plugins/${pluginName}.js`);
+    return plugin;
+  } catch (error) {
+    console.error(`Plugin ${pluginName} not found`);
+    return null;
+  }
+}
+
+const imagePlugin = loadPlugin("image-processor");
+const videoPlugin = loadPlugin("video-processor");
+```
+
+### 3. 순환 참조 이슈 해결하기
+
+순환 참조는 CommonJS에서 흔히 발생하는 문제입니다.
+
+**문제 상황:**
+
+```js
+// a.js
+console.log("a.js 시작");
+exports.name = "Module A";
+
+const b = require("./b.js");
+console.log("a.js에서 b:", b);
+
+exports.greet = function () {
+  return `Hello from ${exports.name}`;
+};
+
+console.log("a.js 끝");
+```
+
+```js
+// b.js
+console.log("b.js 시작");
+exports.name = "Module B";
+
+const a = require("./a.js");
+console.log("b.js에서 a:", a);
+
+exports.greet = function () {
+  return `Hello from ${exports.name}`;
+};
+
+console.log("b.js 끝");
+```
+
+```js
+// main.js
+const a = require("./a.js");
+console.log("Final a:", a);
+
+// 출력:
+// a.js 시작
+// b.js 시작
+// b.js에서 a: { name: 'Module A' }  // greet 함수가 없음!
+// b.js 끝
+// a.js에서 b: { name: 'Module B', greet: [Function] }
+// a.js 끝
+// Final a: { name: 'Module A', greet: [Function] }
+```
+
+**왜 이런 일이 발생할까?**
+
+1. `a.js`가 로드 시작 → `exports.name` 설정
+2. `a.js`가 `b.js`를 require
+3. `b.js`가 로드 시작 → `exports.name` 설정
+4. `b.js`가 `a.js`를 require → **캐시에서 가져옴 (아직 완료되지 않은 상태)**
+5. 이 시점에 `a.js`의 `exports`에는 `greet`가 아직 없음!
+
+**해결 방법 1: 모듈 구조 재설계**
+
+```js
+// shared.js - 공통 기능 분리
+exports.formatMessage = function (name) {
+  return `Hello from ${name}`;
+};
+```
+
+```js
+// a.js
+const shared = require("./shared.js");
+exports.name = "Module A";
+
+exports.greet = function () {
+  return shared.formatMessage(exports.name);
+};
+```
+
+```js
+// b.js
+const shared = require("./shared.js");
+exports.name = "Module B";
+
+exports.greet = function () {
+  return shared.formatMessage(exports.name);
+};
+```
+
+**해결 방법 2: 지연 로딩 (Lazy Loading)**
+
+```js
+// a.js
+exports.name = "Module A";
+
+exports.greet = function () {
+  // 함수 실행 시점에 require (모듈이 완전히 로드된 후)
+  const b = require("./b.js");
+  return `${exports.name} says hello to ${b.name}`;
+};
+```
+
+### 4. NPM 패키지 구조 분석
+
+실제 NPM 패키지가 어떻게 구성되는지 살펴보겠습니다:
+
+```
+lodash/
+├── package.json
+├── index.js          (진입점)
+├── lodash.js         (전체 번들)
+└── src/
+    ├── array/
+    │   ├── chunk.js
+    │   └── compact.js
+    ├── object/
+    │   ├── keys.js
+    │   └── values.js
+    └── string/
+        ├── camelCase.js
+        └── capitalize.js
+```
+
+**package.json:**
+
+```json
+{
+  "name": "lodash",
+  "version": "4.17.21",
+  "main": "index.js",
+  "description": "Lodash modular utilities.",
+  "keywords": ["modules", "stdlib", "util"],
+  "author": "John-David Dalton",
+  "license": "MIT"
+}
+```
+
+**index.js (진입점):**
+
+```js
+// 개별 함수들을 모아서 하나의 객체로 export
+module.exports = {
+  chunk: require("./src/array/chunk.js"),
+  compact: require("./src/array/compact.js"),
+  camelCase: require("./src/string/camelCase.js"),
+  capitalize: require("./src/string/capitalize.js"),
+  // ... 수백 개의 함수들
+};
+```
+
+**사용 예시:**
+
+```js
+// 전체 라이브러리 로드
+const _ = require("lodash");
+console.log(_.chunk([1, 2, 3, 4], 2)); // [[1, 2], [3, 4]]
+
+// 개별 함수만 로드 (트리 쉐이킹)
+const chunk = require("lodash/chunk");
+console.log(chunk([1, 2, 3, 4], 2)); // [[1, 2], [3, 4]]
+```
+
+### 5. Browserify로 CommonJS 동작 원리 이해
+
+CommonJS는 원래 **브라우저 외부 환경**을 위해 설계되었습니다. 하지만 Browserify를 사용하면 브라우저에서도 CommonJS 모듈을 사용할 수 있습니다.
+
+**Browserify의 작동 원리:**
+
+```js
+// math.js
+exports.add = function (a, b) {
+  return a + b;
+};
+
+// app.js
+const math = require("./math.js");
+console.log(math.add(2, 3));
+```
+
+**Browserify 실행:**
+
+```bash
+browserify app.js -o bundle.js
+```
+
+**생성된 bundle.js (간소화):**
+
+```js
+(function () {
+  // 모듈 시스템 구현
+  var modules = {
+    1: [
+      function (require, module, exports) {
+        // math.js 내용
+        exports.add = function (a, b) {
+          return a + b;
+        };
+      },
+      {},
+    ],
+
+    2: [
+      function (require, module, exports) {
+        // app.js 내용
+        const math = require("./math.js");
+        console.log(math.add(2, 3));
+      },
+      { "./math.js": 1 },
+    ],
+  };
+
+  // require 함수 구현
+  function require(id) {
+    var module = { exports: {} };
+    modules[id][0].call(module.exports, require, module, module.exports);
+    return module.exports;
+  }
+
+  // 진입점 실행
+  require(2);
+})();
+```
+
+Browserify는:
+
+1. 모든 모듈을 하나의 파일로 번들링
+2. `require()` 함수를 직접 구현
+3. 모듈 간 의존성을 해결
+4. 브라우저에서 실행 가능한 코드 생성
+
+## 마치며
+
+CommonJS의 동작 원리를 이해하면:
+
+- `require()`가 단순한 함수 호출이 아니라 복잡한 5단계 프로세스임을 알 수 있습니다
+- 모듈 캐싱이 성능과 싱글톤 패턴에 어떻게 기여하는지 이해할 수 있습니다
+- 순환 참조 문제를 예방하고 해결할 수 있습니다
+- NPM 패키지가 어떻게 구성되는지 파악할 수 있습니다
+
+다음 글에서는 ESM(ECMAScript Module)의 동작 원리와 CommonJS와의 차이점을 비교해보겠습니다!

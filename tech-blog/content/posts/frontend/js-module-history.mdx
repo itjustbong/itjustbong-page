@@ -1,0 +1,339 @@
+---
+title: "[JS Module] JavaScript 모듈 시스템의 역사와 발전"
+description: "JavaScript 모듈 시스템의 역사와 발전"
+category: "frontend"
+tags: ["javascript", "module", "history"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+# JavaScript 모듈 시스템의 역사와 발전
+
+JavaScript 생태계를 이해하려면 모듈 시스템의 발전 과정을 아는 것이 중요합니다. 오늘은 JavaScript 모듈이 어떻게 시작되었고, 어떤 문제들을 해결하며 발전해왔는지 살펴보겠습니다.
+
+## 모듈이란?
+
+모듈은 **특정한 기능을 하는 독립적인 코드 단위**입니다. 마치 레고 블록처럼, 각각의 모듈은 독립적으로 작동하면서도 다른 모듈과 조합하여 더 큰 프로그램을 만들 수 있습니다.
+
+예를 들어, 계산기 앱을 만든다고 생각해봅시다:
+
+- `math.js` - 덧셈, 뺄셈 등의 계산 기능
+- `display.js` - 화면에 결과를 보여주는 기능
+- `history.js` - 계산 기록을 저장하는 기능
+
+이렇게 기능별로 코드를 분리하면 유지보수가 쉽고, 재사용성도 높아집니다.
+
+현재 JavaScript에서는 **ESM(ECMAScript Module)** 이 표준 모듈 시스템으로 사용되며, `export`와 `import` 키워드로 모듈을 주고받습니다. 하지만 여기까지 오기까지 긴 여정이 있었습니다.
+
+## JavaScript 모듈 시스템의 발전 과정
+
+JavaScript 모듈 시스템은 다음과 같은 순서로 발전했습니다:
+
+```
+JavaScript 등장 → CommonJS → AMD → UMD → ESM
+```
+
+초기 JavaScript는 브라우저마다 다른 엔진을 사용했고, 이로 인해 호환성 이슈가 빈번했습니다. 이러한 문제를 해결하기 위해 **JavaScript의 표준**이 필요했고, 이것이 모듈 시스템 발전의 시작점이 되었습니다.
+
+## CommonJS(CJS)의 등장 - 서버 사이드의 혁명
+
+### 배경: JavaScript의 한계
+
+초기 JavaScript는 브라우저에서만 동작하는 언어였습니다. 하지만 개발자들은 JavaScript를 서버에서도 사용하고 싶었습니다. 문제는 다음과 같았습니다:
+
+- ❌ 파일 읽기, 쓰기 기능이 없음
+- ❌ 웹 서버, 데이터베이스 연동 인터페이스가 없음
+- ❌ 패키지 매니저가 없음
+- ❌ **모듈 시스템이 없음**
+
+이러한 문제를 해결하기 위해 **CommonJS 그룹**이 결성되었습니다. (원래는 ServerJS였으나, 범용성을 고려하여 CommonJS로 이름을 변경했습니다)
+
+### CommonJS의 목적
+
+**ECMA**(정보통신 표준화 단체)의 지원 아래, CommonJS는 JavaScript의 모듈 스펙과 패키지 스펙을 규격화하여 여러 런타임(Rhino, V8, SpiderMonkey, JavaScriptCore)에서 문제없이 작동하도록 하는 것을 목표로 했습니다.
+
+### CommonJS 코드 예시
+
+```js
+// math.js - 모듈 정의
+exports.add = function (a, b) {
+  return a + b;
+};
+
+exports.subtract = function (a, b) {
+  return a - b;
+};
+
+// main.js - 모듈 사용
+const math = require("./math.js");
+console.log(math.add(5, 3)); // 8
+console.log(math.subtract(5, 3)); // 2
+```
+
+`require`로 모듈을 불러오고, `exports`로 모듈을 내보내는 간단하고 직관적인 방식이었습니다.
+
+## Node.js의 등장 - 게임 체인저
+
+### Chrome과 V8 엔진
+
+2008년, Google은 Chrome 브라우저와 함께 **V8 엔진**을 공개했습니다. V8은 JavaScript를 기존보다 훨씬 빠르게 실행시켰고, 이는 JavaScript 생태계에 큰 변화를 가져왔습니다.
+
+### Ryan Dahl의 혁신
+
+2009년 JSCONF에서 Ryan Dahl은 **Node.js**를 발표했습니다:
+
+- **Node.js**: V8 엔진으로 만들어진 JavaScript 런타임 (브라우저 외부에서도 JS를 실행할 수 있는 환경)
+- **NPM**: JavaScript 패키지 매니저
+
+V8의 성능과 Non-Blocking I/O, 그리고 CommonJS의 모듈 시스템이 결합되어 Node.js는 폭발적인 인기를 얻게 되었습니다.
+
+## AMD의 등장 - 브라우저를 위한 선택
+
+### CommonJS의 한계
+
+CommonJS는 Node.js에서는 잘 작동했지만, 브라우저에서는 문제가 있었습니다:
+
+- ❌ 브라우저에는 `require`, `module.exports` 기능이 구현되어 있지 않음
+- ❌ CommonJS는 **동기적(synchronous)** 으로 설계되어 비동기를 지원하지 않음
+- ✅ 브라우저에서는 **비동기(asynchronous)** 방식이 필수
+
+브라우저에서 파일을 동기적으로 로드하면 화면이 멈추는 현상이 발생합니다. 예를 들어, 큰 모듈을 로드하는 동안 사용자는 아무것도 할 수 없게 됩니다.
+
+### AMD(Asynchronous Module Definition)
+
+AMD는 브라우저를 위한 비동기 JavaScript 모듈 시스템으로, **RequireJS**나 **Dojo**에서 구현되었습니다.
+
+```js
+// math.js - 모듈 정의
+define(function () {
+  return {
+    multiply: function (a, b) {
+      return a * b;
+    },
+  };
+});
+
+// expo.js - 다른 모듈에 의존하는 모듈
+define("expo", ["math"], function (math) {
+  return {
+    square: function (a) {
+      return math.multiply(a, a);
+    },
+  };
+});
+
+// main.js - 여러 모듈 사용
+require(["math", "expo"], function (math, expo) {
+  console.log(math.multiply(3, 4)); // 12
+  console.log(expo.square(5)); // 25
+});
+```
+
+### Browserify - 개발자들의 반란
+
+하지만 개발자들은 새로운 문법을 배우기보다 **그냥 CommonJS를 쓰고 싶었습니다**. 이에 대한 해결책으로 **Browserify**가 등장했습니다.
+
+Browserify의 작동 방식:
+
+1. 개발자는 CommonJS 문법으로 코드 작성
+2. Browserify가 모든 모듈을 하나의 파일로 번들링
+3. 브라우저에 번들된 파일 전달
+
+이는 **현대식 번들러의 시초**라고 할 수 있습니다.
+
+## UMD의 등장 - 호환성의 다리
+
+### 새로운 문제
+
+이제 두 가지 모듈 시스템이 존재했습니다:
+
+- CommonJS (서버용)
+- AMD (브라우저용)
+
+문제는 **AMD와 CommonJS의 JavaScript 파일이 상호 호환되지 않는다**는 것이었습니다.
+
+### UMD(Universal Module Definition)
+
+UMD는 CommonJS와 AMD 모듈 간 호환성을 제공하기 위한 JavaScript 모듈 패턴입니다. 명세라기보다는 **템플릿에 가까운** 방식이었습니다.
+
+![UMD](https://velog.velcdn.com/images/qhdgkdbs/post/efcd28bd-ad1c-4526-bb11-204948351686/image.png)
+
+UMD는 실행 환경을 감지하여 적절한 모듈 시스템을 사용하는 방식으로 작동했습니다:
+
+```js
+(function (root, factory) {
+  if (typeof define === "function" && define.amd) {
+    // AMD 환경
+    define(["dependency"], factory);
+  } else if (typeof module === "object" && module.exports) {
+    // CommonJS 환경
+    module.exports = factory(require("dependency"));
+  } else {
+    // 브라우저 전역 변수
+    root.MyModule = factory(root.Dependency);
+  }
+})(this, function (dependency) {
+  // 모듈 코드
+  return {};
+});
+```
+
+## ESM의 등장 - 드디어 표준이 생기다
+
+### 혼란의 시대
+
+이 시점에서 JavaScript 생태계는 다음과 같은 상황이었습니다:
+
+- CommonJS: 서버용 모듈 스펙
+- AMD: 브라우저용 비동기 모듈 스펙
+- UMD: 호환성을 위한 모듈 패턴
+
+개발자들은 질문했습니다: **"그래서 JavaScript 표준은 뭔데?"**
+
+### ECMAScript Module(ESM)의 탄생
+
+드디어 **ES2015(ES6)** 에서 JavaScript 언어 자체에 모듈 시스템이 포함되었습니다. 이것이 바로 **ECMAScript Module(ESM)** 입니다.
+
+### ES6의 주요 변화
+
+ES6는 모듈 시스템뿐만 아니라 JavaScript에 많은 혁신을 가져왔습니다:
+
+- `let`, `const` - 블록 스코프 변수
+- 화살표 함수, 클래스
+- 템플릿 문자열, 구조분해할당
+- 기본 매개변수 & 가변 인자
+- Iterator & for...of
+- Map & Set
+- Promise
+- **그리고 모듈 시스템**
+
+### ESM 코드 예시
+
+```js
+// add.mjs - 모듈 정의
+function add(a, b) {
+  return a + b;
+}
+
+export default add;
+export { add }; // named export도 가능
+
+// main.mjs - 모듈 사용
+import add from "./add.mjs"; // default import
+import { add as addFunc } from "./add.mjs"; // named import
+
+console.log(add(10, 20)); // 30
+console.log(addFunc(5, 15)); // 20
+```
+
+### ECMAScript의 발전 과정
+
+JavaScript 표준화를 위해 **TC39**(Technical Committee 39)가 결성되었고, 그 결과물이 바로 **ECMAScript**입니다.
+
+![타임라인](https://velog.velcdn.com/images/qhdgkdbs/post/395419cd-78fb-425b-ac19-1de38905711a/image.png)
+
+## ESM 이후 - 현대의 JavaScript 생태계
+
+### 브라우저 사이드의 도전과 해결
+
+#### 문제점
+
+ESM이 표준이 되었지만, 여전히 문제가 있었습니다:
+
+1. **브라우저 호환성**: 일부 구형 브라우저에서 ESM을 지원하지 않음
+2. **모듈 로딩 성능**: 모듈화 → 다수의 네트워크 요청 → 속도 저하
+
+예를 들어, 100개의 모듈이 있다면 100번의 HTTP 요청이 필요했습니다. 이는 심각한 성능 문제를 야기했습니다.
+
+#### 해결책
+
+**1. 트랜스파일러 - 브라우저 호환성 해결**
+
+트랜스파일러는 최신 JavaScript 코드를 구형 브라우저에서도 실행 가능한 코드로 변환합니다:
+
+- **Babel**: ESM에 맞춰 개발된 대표적인 트랜스파일러 (ES6 → ES5)
+- **SWC**: Rust로 작성된 초고속 트랜스파일러
+
+```js
+// ES6 코드 (입력)
+const greet = (name) => `Hello, ${name}!`;
+
+// ES5 코드 (Babel 출력)
+var greet = function (name) {
+  return "Hello, " + name + "!";
+};
+```
+
+**2. 번들러 - 모듈 로딩 성능 해결**
+
+번들러는 여러 모듈을 하나의 파일로 묶어 네트워크 요청을 최소화합니다:
+
+```
+여러 모듈 파일 → Webpack → 하나의 번들 파일
+(100개 파일)              (1개 파일)
+```
+
+주요 번들러:
+
+- **Webpack**: 가장 널리 사용되는 번들러, 강력한 플러그인 생태계
+- **Rollup**: 라이브러리 번들링에 특화
+- **Vite**: 개발 서버에서 ESM을 네이티브로 사용, 빠른 HMR
+- **esbuild**: Go로 작성된 초고속 번들러
+
+### 서버 사이드의 도전과 해결
+
+#### 문제점
+
+Node.js는 CommonJS와 ESM 두 가지 표준을 모두 지원해야 했습니다. 하지만 Node.js는 JavaScript 파일을 어떤 방식으로 해석해야 할지 알 수 없었습니다:
+
+- CommonJS로 읽어야 할까?
+- ESM으로 읽어야 할까?
+- CommonJS가 ESM을 부르거나, 그 반대의 경우는 어떻게 처리할까?
+
+#### 해결책
+
+Node.js는 **확장자와 설정으로 모듈 시스템을 구분**하는 방식을 채택했습니다:
+
+**1. 확장자로 구분**
+
+- `.cjs` - CommonJS 모듈
+- `.mjs` - ESM 모듈
+- `.js` - package.json의 type 필드에 따라 결정
+
+**2. package.json 설정**
+
+```json
+{
+  "name": "my-project",
+  "type": "module" // 기본값을 ESM으로 설정
+}
+```
+
+**3. 상호 호환성 지원**
+
+```js
+// ESM에서 CommonJS 불러오기 (가능)
+import cjsModule from "./commonjs-module.cjs";
+
+// CommonJS에서 ESM 불러오기 (동적 import 필요)
+const esmModule = await import("./esm-module.mjs");
+```
+
+## 발전 타임라인 한눈에 보기
+
+![발전 타임라인](https://velog.velcdn.com/images/qhdgkdbs/post/3729e813-2279-4aec-987f-75bc064cf798/image.png)
+
+## 마치며
+
+JavaScript 모듈 시스템의 역사를 살펴보면, 개발자 커뮤니티가 어떻게 문제를 해결하고 표준을 만들어왔는지 알 수 있습니다:
+
+1. **CommonJS** - 서버 사이드 JavaScript의 가능성을 열다
+2. **AMD** - 브라우저의 비동기 특성을 고려하다
+3. **UMD** - 호환성의 다리를 놓다
+4. **ESM** - 드디어 표준이 되다
+5. **현대 도구들** - 실용적인 문제를 해결하다
+
+오늘날 우리가 `import`와 `export`를 당연하게 사용하는 것은, 수많은 개발자들의 노력과 시행착오가 있었기에 가능한 일입니다. 이러한 역사를 이해하면, 현재의 JavaScript 생태계를 더 깊이 이해할 수 있습니다.
+
+다음 글에서는 ESM과 CommonJS의 차이점, 그리고 실무에서 어떻게 활용하는지 더 자세히 다뤄보겠습니다!
