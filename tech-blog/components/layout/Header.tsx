@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ThemeToggle } from "./ThemeToggle";
+import { InfoPopup } from "./InfoPopup";
 
 export function Header() {
   return (
@@ -18,8 +19,9 @@ export function Header() {
         </Link>
 
         {/* Right side actions */}
-        <div className="flex items-center">
+        <div className="flex items-center gap-1">
           <ThemeToggle />
+          <InfoPopup />
         </div>
       </div>
     </header>
