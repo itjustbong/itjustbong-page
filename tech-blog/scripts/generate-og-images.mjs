@@ -30,7 +30,7 @@ const categoryThemes = {
     accent: "#99f6e4",
     letter: "B",
   },
-  docker: {
+  devops: {
     bg1: "#0284c7",
     bg2: "#0ea5e9",
     accent: "#7dd3fc",
@@ -41,6 +41,12 @@ const categoryThemes = {
     bg2: "#a855f7",
     accent: "#d8b4fe",
     letter: "B",
+  },
+  architecture: {
+    bg1: "#ea580c",
+    bg2: "#f97316",
+    accent: "#fed7aa",
+    letter: "A",
   },
   ai: {
     bg1: "#ea580c",
