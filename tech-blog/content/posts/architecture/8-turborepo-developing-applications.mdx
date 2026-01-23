@@ -1,0 +1,895 @@
+---
+title: "[Turborepo] 8. 애플리케이션 개발하기 (Developing Applications)"
+description: "Turborepo 애플리케이션 개발 방법과 모범 사례"
+category: "architecture"
+tags: ["turborepo", "monorepo", "build", "optimization"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+# Turborepo 애플리케이션 개발하기 (Developing Applications)
+
+모노레포에서 애플리케이션을 개발하는 것은 각 소스 컨트롤의 아토믹한 커밋을 가능하게 합니다. 대부분의 개발은 코드를 수정하는 긴 작업이며, Turborepo는 터미널 UI와 다양한 기능으로 개발 경험을 개선합니다.
+
+이 글에서는 Turborepo를 활용한 효율적인 개발 워크플로우를 알아보겠습니다.
+
+## 개발 태스크 설정
+
+개발 서버처럼 장시간 실행되는 작업은 특별한 설정이 필요합니다.
+
+### 기본 설정
+
+**현재 프로젝트의 실제 설정:**
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
+```
+
+**각 필드 설명:**
+
+#### cache: false
+
+```json
+"cache": false
+```
+
+개발 작업은 코드를 자주 변경하므로 결과를 캐싱하는 것이 유용하지 않습니다.
+
+**이유:**
+
+- 개발 중에는 코드가 계속 변경됨
+- 캐시 히트가 거의 발생하지 않음
+- 캐시 오버헤드만 증가
+
+#### persistent: true
+
+```json
+"persistent": true
+```
+
+중지할 때까지 작업을 계속 실행하도록 지시합니다.
+
+**동작:**
+
+- 터미널 UI가 작업을 장시간 실행으로 처리
+- 대화형으로 상호작용 가능
+- 다른 작업들과 병렬로 실행
+
+### 실행 예시
+
+```bash
+$ turbo dev
+
+• Packages in scope: @repo/math, web
+• Running dev in 2 packages
+
+@repo/math:dev:
+@repo/math:dev: > @repo/math@0.0.0 dev
+@repo/math:dev: > tsc --watch
+@repo/math:dev:
+@repo/math:dev: [10:00:00 AM] Starting compilation in watch mode...
+@repo/math:dev: [10:00:01 AM] Found 0 errors. Watching for file changes.
+
+web:dev:
+web:dev: > web@0.1.0 dev
+web:dev: > next dev --port 3000
+web:dev:
+web:dev:   ▲ Next.js 16.0.1
+web:dev:   - Local:        http://localhost:3000
+web:dev:   - Ready in 2.3s
+```
+
+두 개발 서버가 동시에 실행되고 계속 유지됩니다!
+
+## dev 명령어 전에 태스크 실행
+
+개발 서버를 시작하기 전에 필요한 설정 작업을 자동으로 실행할 수 있습니다.
+
+### 일반적인 설정 작업
+
+- 코드 생성 (GraphQL, Prisma 등)
+- 환경 파일 복사
+- 데이터베이스 마이그레이션
+- 의존 패키지 빌드
+
+### 설정 예시
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": [
+        "//#dev:setup", // 루트 설정 스크립트
+        "^build" // 의존 패키지 빌드
+      ]
+    },
+    "//#dev:setup": {
+      "outputs": [".codegen/**", ".env.local"]
+    },
+    "build": {
+      "outputs": ["dist/**"]
+    }
+  }
+}
+```
+
+```json
+// package.json (루트)
+{
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:setup": "node scripts/generate-types.js && cp .env.example .env.local"
+  }
+}
+```
+
+### 실행 순서
+
+```bash
+$ turbo dev
+
+1. //#dev:setup 실행
+   → scripts/generate-types.js 실행
+   → .env.local 생성
+
+2. @repo/math:build 실행
+   → dist/ 생성
+
+3. @repo/math:dev 시작
+   → tsc --watch 실행
+
+4. web:dev 시작
+   → next dev 실행
+```
+
+### 실전 예시: GraphQL 코드 생성
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["//#codegen", "^build"]
+    },
+    "//#codegen": {
+      "outputs": ["**/__generated__/**"]
+    }
+  }
+}
+```
+
+```json
+// package.json (루트)
+{
+  "scripts": {
+    "codegen": "graphql-codegen --config codegen.yml"
+  }
+}
+```
+
+**동작:**
+
+```bash
+$ turbo dev
+
+1. GraphQL 코드 생성
+   → __generated__/ 폴더 생성
+
+2. 의존 패키지 빌드
+   → @repo/math:build
+
+3. 개발 서버 시작
+   → web:dev
+```
+
+## 특정 애플리케이션 실행
+
+필터를 사용하여 특정 애플리케이션만 실행할 수 있습니다.
+
+### web만 실행 (의존성 제외)
+
+```bash
+turbo dev --filter=web --no-deps
+```
+
+**실행:**
+
+- `web:dev`만 실행
+- `@repo/math:dev` 실행 안함
+
+**사용 사례:**
+
+- web만 작업할 때
+- 빠른 시작이 필요할 때
+
+### web과 의존성 실행
+
+```bash
+turbo dev --filter=web...
+```
+
+**실행:**
+
+- `@repo/math:dev` 실행
+- `@repo/ui:dev` 실행
+- `web:dev` 실행
+
+**사용 사례:**
+
+- 의존 패키지도 함께 개발
+- 전체 스택 개발
+
+### web에 의존하는 것들 실행
+
+```bash
+turbo dev --filter=...web
+```
+
+**실행:**
+
+- `@repo/math:dev` 실행
+- `@repo/ui:dev` 실행
+- `web:dev` 실행
+
+**사용 사례:**
+
+- 라이브러리 변경 시 영향 확인
+
+### 여러 앱 동시 실행
+
+```bash
+# web과 docs만
+turbo dev --filter=web --filter=docs
+
+# apps 디렉토리의 모든 앱
+turbo dev --filter="./apps/*"
+```
+
+**실행 예시:**
+
+```bash
+$ turbo dev --filter="./apps/*"
+
+• Packages in scope: web, docs
+• Running dev in 2 packages
+
+web:dev: ▲ Next.js 16.0.1
+web:dev: - Local: http://localhost:3000
+
+docs:dev: ▲ Next.js 16.0.1
+docs:dev: - Local: http://localhost:3001
+```
+
+## 터미널 UI 사용하기
+
+Turborepo는 강력한 터미널 UI를 제공합니다.
+
+### 기본 UI
+
+```bash
+$ turbo dev
+
+┌─────────────────────────────────────────────────┐
+│ Turborepo                                       │
+├─────────────────────────────────────────────────┤
+│ @repo/math:dev                                  │
+│ [10:00:01 AM] Found 0 errors. Watching...      │
+│                                                 │
+│ web:dev                                         │
+│ ▲ Next.js 16.0.1                               │
+│ - Local: http://localhost:3000                 │
+│ - Ready in 2.3s                                │
+└─────────────────────────────────────────────────┘
+
+Press ? for help
+```
+
+### 키보드 단축키
+
+```
+? - 도움말 표시
+q - 종료
+c - 로그 지우기
+f - 필터 모드
+s - 특정 태스크 선택
+r - 태스크 재시작
+k/j - 위/아래 스크롤
+```
+
+### 필터 모드
+
+```bash
+# 터미널에서 'f' 키 입력
+Filter: web
+
+# web 관련 로그만 표시
+web:dev: ▲ Next.js 16.0.1
+web:dev: - Local: http://localhost:3000
+```
+
+### 태스크 선택
+
+```bash
+# 터미널에서 's' 키 입력
+Select task:
+  [x] @repo/math:dev
+  [x] web:dev
+  [ ] docs:dev
+
+# 체크박스로 표시할 태스크 선택
+```
+
+## Watch Mode
+
+파일 변경을 감지하고 자동으로 작업을 재실행합니다.
+
+### 기본 개념
+
+많은 도구에는 `tsc --watch`처럼 내장 watcher가 있습니다. `turbo watch`는 모든 도구에 의존성 인식 watcher를 추가합니다.
+
+### 설정
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "dev": {
+      "persistent": true,
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    }
+  }
+}
+```
+
+### 사용법
+
+```bash
+turbo watch dev lint
+```
+
+**동작:**
+
+```
+1. dev 시작 (persistent)
+   → 계속 실행
+
+2. lint 실행 (non-persistent)
+   → 완료 후 대기
+
+3. 파일 변경 감지
+   → lint 자동 재실행
+
+4. 의존 패키지 변경
+   → 관련 작업 자동 재실행
+```
+
+### 실행 예시
+
+```bash
+$ turbo watch dev lint
+
+@repo/math:dev: [10:00:00 AM] Watching for file changes...
+@repo/math:lint: ✓ No errors found
+
+# src/add.ts 수정
+@repo/math:lint: Running...
+@repo/math:lint: ✓ No errors found
+
+# web도 자동으로 재실행
+web:lint: Running...
+web:lint: ✓ No errors found
+```
+
+### turbo watch의 장점
+
+#### 1. 모든 도구에 watch 추가
+
+watcher가 없는 도구도 자동 재실행됩니다.
+
+```bash
+# ESLint는 내장 watcher가 없지만
+turbo watch lint
+
+# 파일 변경 시 자동으로 재실행
+```
+
+#### 2. 의존성 인식
+
+의존 패키지 변경 시 자동으로 관련 작업이 재실행됩니다.
+
+```bash
+$ turbo watch test
+
+# @repo/math 변경
+@repo/math:test: Running...
+
+# web도 자동으로 재실행 (math에 의존)
+web:test: Running...
+```
+
+#### 3. Task Graph 준수
+
+`turbo.json`의 의존성 관계를 유지합니다.
+
+```json
+{
+  "tasks": {
+    "test": {
+      "dependsOn": ["build"]
+    }
+  }
+}
+```
+
+```bash
+$ turbo watch test
+
+# 소스 변경
+1. build 실행
+2. test 실행 (build 완료 후)
+```
+
+### persistent vs non-persistent
+
+```json
+{
+  "tasks": {
+    "dev": {
+      "persistent": true, // 계속 실행
+      "cache": false
+    },
+    "lint": {
+      "persistent": false // 파일 변경 시 재실행
+    }
+  }
+}
+```
+
+**동작:**
+
+```bash
+$ turbo watch dev lint
+
+dev: 계속 실행 중...
+lint: 완료 → 대기 → 파일 변경 → 재실행
+```
+
+## 실전 개발 워크플로우
+
+### 워크플로우 1: 풀스택 개발
+
+모든 패키지를 동시에 개발합니다.
+
+```bash
+# 모든 개발 서버 시작
+$ turbo dev
+
+@repo/math:dev: tsc --watch
+@repo/ui:dev: tsc --watch
+web:dev: next dev --port 3000
+docs:dev: next dev --port 3001
+```
+
+**사용 사례:**
+
+- 여러 패키지를 동시에 수정
+- 전체 시스템 테스트
+- 통합 개발
+
+### 워크플로우 2: 프론트엔드 집중 개발
+
+프론트엔드만 개발하고 백엔드는 빌드된 버전 사용:
+
+```bash
+# 의존 패키지 빌드
+$ turbo build --filter=web...
+
+# web만 개발 모드
+$ turbo dev --filter=web --no-deps
+```
+
+**사용 사례:**
+
+- UI 작업에 집중
+- 빠른 시작 필요
+- 의존 패키지는 안정적
+
+### 워크플로우 3: 라이브러리 개발
+
+라이브러리와 그것을 사용하는 앱을 함께 개발:
+
+```bash
+# math 패키지와 그것에 의존하는 모든 것
+$ turbo dev --filter=...@repo/math
+```
+
+**실행:**
+
+- `@repo/math:dev`
+- `@repo/ui:dev` (math에 의존)
+- `web:dev` (math에 의존)
+
+**사용 사례:**
+
+- 라이브러리 API 변경
+- 영향 범위 확인
+- 통합 테스트
+
+### 워크플로우 4: 특정 기능 개발
+
+특정 앱만 개발하고 watch mode로 린트와 테스트:
+
+```bash
+# 터미널 1: 개발 서버
+$ turbo dev --filter=web
+
+# 터미널 2: watch mode
+$ turbo watch lint test --filter=web
+```
+
+**동작:**
+
+- 터미널 1: 개발 서버 실행
+- 터미널 2: 파일 변경 시 자동 린트 및 테스트
+
+### 워크플로우 5: 핫 리로드 개발
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^build"] // 의존 패키지는 빌드만
+    }
+  }
+}
+```
+
+```bash
+$ turbo dev --filter=web
+```
+
+**동작:**
+
+1. `@repo/math:build` 실행 (한 번만)
+2. `web:dev` 시작
+3. `@repo/math` 변경 시 자동 재빌드
+4. `web`이 핫 리로드
+
+## 개발 환경 최적화
+
+### 1. 환경 변수 관리
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "env": ["API_URL", "DATABASE_URL", "NEXT_PUBLIC_*"]
+    }
+  }
+}
+```
+
+**동작:**
+
+- 환경 변수 변경 시 자동 재시작
+- `.env.local` 파일 감지
+
+### 2. 포트 충돌 방지
+
+```json
+// apps/web/package.json
+{
+  "scripts": {
+    "dev": "next dev --port 3000"
+  }
+}
+
+// apps/docs/package.json
+{
+  "scripts": {
+    "dev": "next dev --port 3001"
+  }
+}
+
+// apps/api/package.json
+{
+  "scripts": {
+    "dev": "node server.js --port 4000"
+  }
+}
+```
+
+각 앱마다 다른 포트를 사용합니다.
+
+### 3. 빠른 시작을 위한 설정
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "dev:quick": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": [] // 의존성 없음
+    }
+  }
+}
+```
+
+```bash
+# 일반 시작 (의존성 빌드)
+$ turbo dev
+
+# 빠른 시작 (의존성 스킵)
+$ turbo dev:quick
+```
+
+### 4. 조건부 실행
+
+```json
+// package.json (루트)
+{
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:docs": "turbo run dev --filter=docs",
+    "dev:all": "turbo run dev --filter=\"./apps/*\""
+  }
+}
+```
+
+**사용:**
+
+```bash
+pnpm dev:web    # web만
+pnpm dev:docs   # docs만
+pnpm dev:all    # 모든 앱
+```
+
+## 디버깅 팁
+
+### 1. 로그 확인
+
+```bash
+# 전체 로그
+turbo dev --output-logs=full
+
+# 에러만
+turbo dev --output-logs=errors-only
+
+# 새 로그만
+turbo dev --output-logs=new-only
+```
+
+### 2. 특정 패키지 디버깅
+
+```bash
+# web만 실행하고 전체 로그 출력
+turbo dev --filter=web --output-logs=full
+```
+
+### 3. 의존성 확인
+
+```bash
+# 드라이런으로 실행 계획 확인
+turbo dev --dry
+
+# 의존성 그래프 시각화
+turbo dev --graph
+```
+
+### 4. 재시작
+
+터미널 UI에서 `r` 키를 눌러 특정 태스크를 재시작할 수 있습니다.
+
+```bash
+# 터미널에서
+Press 'r' to restart tasks
+Select task to restart:
+  [ ] @repo/math:dev
+  [x] web:dev
+```
+
+## 일반적인 문제와 해결책
+
+### 문제 1: 개발 서버가 시작되지 않음
+
+**증상:**
+
+```bash
+$ turbo dev
+web:dev: Error: Port 3000 is already in use
+```
+
+**해결:**
+
+```bash
+# 포트 사용 중인 프로세스 종료
+lsof -ti:3000 | xargs kill -9
+
+# 또는 다른 포트 사용
+turbo dev --filter=web -- --port 3001
+```
+
+### 문제 2: 의존 패키지 변경이 반영 안됨
+
+**증상:**
+
+- `@repo/math` 수정했는데 `web`에 반영 안됨
+
+**해결:**
+
+```bash
+# 의존 패키지도 dev 모드로 실행
+turbo dev --filter=web...
+
+# 또는 watch mode 사용
+turbo watch dev --filter=web...
+```
+
+### 문제 3: 너무 많은 로그
+
+**증상:**
+
+- 터미널이 로그로 가득 참
+
+**해결:**
+
+```bash
+# 에러만 표시
+turbo dev --output-logs=errors-only
+
+# 또는 터미널 UI에서 'f' 키로 필터
+```
+
+### 문제 4: 메모리 부족
+
+**증상:**
+
+- 모든 패키지 실행 시 메모리 부족
+
+**해결:**
+
+```bash
+# 필요한 것만 실행
+turbo dev --filter=web --no-deps
+
+# 또는 동시 실행 수 제한
+turbo dev --concurrency=2
+```
+
+## 생산성 향상 팁
+
+### 1. 별칭 설정
+
+```json
+// package.json (루트)
+{
+  "scripts": {
+    "d": "turbo dev",
+    "dw": "turbo dev --filter=web",
+    "dd": "turbo dev --filter=docs",
+    "w": "turbo watch"
+  }
+}
+```
+
+```bash
+pnpm d     # turbo dev
+pnpm dw    # turbo dev --filter=web
+pnpm w     # turbo watch
+```
+
+### 2. 자동 재시작 스크립트
+
+```bash
+#!/bin/bash
+# scripts/dev-watch.sh
+
+# 파일 변경 감지하여 자동 재시작
+while true; do
+  turbo dev --filter=web
+  echo "Restarting in 2 seconds..."
+  sleep 2
+done
+```
+
+### 3. 개발 환경 체크
+
+```json
+// package.json (루트)
+{
+  "scripts": {
+    "dev:check": "turbo run check-types lint --filter=web && turbo dev --filter=web"
+  }
+}
+```
+
+**동작:**
+
+1. 타입 체크
+2. 린트
+3. 통과하면 개발 서버 시작
+
+### 4. 멀티 터미널 설정
+
+```bash
+# 터미널 1: 개발 서버
+turbo dev --filter=web
+
+# 터미널 2: watch mode
+turbo watch lint test --filter=web
+
+# 터미널 3: 타입 체크
+turbo watch check-types --filter=web
+```
+
+## 정리
+
+Turborepo 개발 워크플로우의 핵심:
+
+1. **개발 태스크 설정**
+   - `cache: false`: 캐싱 비활성화
+   - `persistent: true`: 장시간 실행
+
+2. **의존성 관리**
+   - `dependsOn`: 설정 작업 자동 실행
+   - 필터로 특정 앱만 실행
+
+3. **Watch Mode**
+   - 모든 도구에 watch 추가
+   - 의존성 인식 자동 재실행
+   - Task Graph 준수
+
+4. **터미널 UI**
+   - 키보드 단축키
+   - 필터 모드
+   - 태스크 선택
+
+5. **워크플로우 최적화**
+   - 환경 변수 관리
+   - 포트 충돌 방지
+   - 조건부 실행
+
+**개발 체크리스트:**
+
+- [ ] `dev` 태스크에 `persistent: true` 설정
+- [ ] 필요한 설정 작업을 `dependsOn`에 추가
+- [ ] 각 앱마다 다른 포트 사용
+- [ ] 필터로 필요한 패키지만 실행
+- [ ] Watch mode로 자동 재실행 활용
+- [ ] 터미널 UI 단축키 숙지
+
+Turborepo의 강력한 개발 도구를 활용하면 모노레포에서도 빠르고 효율적인 개발이 가능합니다. 특히 watch mode와 터미널 UI를 잘 활용하면 생산성을 크게 향상시킬 수 있습니다.
+
+이것으로 Turborepo 시리즈를 마칩니다. 모노레포 개발에 도움이 되길 바랍니다!

@@ -1,0 +1,558 @@
+---
+title: "[Turborepo] 3. 의존성 관리하기 (Managing Dependencies)"
+description: "Turborepo 의존성 관리 방법과 모범 사례"
+category: "architecture"
+tags: ["turborepo", "monorepo", "build", "optimization"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+# Turborepo 의존성 관리하기 (Managing Dependencies)
+
+모노레포에서 의존성을 어떻게 관리하느냐에 따라 프로젝트의 유지보수성과 빌드 성능이 크게 달라집니다. 이 글에서는 Turborepo 환경에서 의존성을 효과적으로 관리하는 방법을 알아보겠습니다.
+
+## 의존성의 두 가지 유형
+
+모노레포에서는 두 가지 유형의 의존성을 다룹니다.
+
+### 외부 의존성 (External Dependencies)
+
+npm 레지스트리에 등록된 서드파티 패키지입니다.
+
+```json
+{
+  "dependencies": {
+    "next": "^16.0.1",
+    "react": "^19.2.0",
+    "lodash": "^4.17.21"
+  }
+}
+```
+
+### 내부 의존성 (Internal Dependencies)
+
+워크스페이스 내의 다른 패키지를 의존성으로 사용하는 경우입니다. 코드 재사용성과 모듈화를 크게 향상시킵니다.
+
+```json
+{
+  "dependencies": {
+    "next": "^16.0.1", // 외부 의존성
+    "@repo/ui": "workspace:*", // 내부 의존성
+    "@repo/math": "workspace:*" // 내부 의존성
+  }
+}
+```
+
+**현재 프로젝트 예시:**
+
+```json
+// apps/web/package.json
+{
+  "name": "web",
+  "dependencies": {
+    "@repo/math": "workspace:*", // 내부: 수학 유틸리티
+    "@repo/ui": "workspace:*", // 내부: UI 컴포넌트
+    "next": "^16.0.1", // 외부: Next.js
+    "react": "^19.2.0" // 외부: React
+  }
+}
+```
+
+## 의존성 설치 모범 사례
+
+### 사용하는 곳에 의존성 설치하기
+
+가장 중요한 원칙은 **의존성을 실제로 사용하는 패키지에 설치**하는 것입니다.
+
+#### ❌ 잘못된 방식: 루트에 모든 의존성 설치
+
+```json
+// ❌ 루트 package.json에 모든 의존성 몰아넣기
+{
+  "name": "monorepo",
+  "dependencies": {
+    "react": "^19.2.0",
+    "next": "^16.0.1",
+    "express": "^4.18.0",
+    "lodash": "^4.17.21"
+  }
+}
+```
+
+**문제점:**
+
+1. **독립성 상실**: 각 패키지가 독립적으로 동작할 수 없습니다.
+2. **캐시 무효화**: 루트 의존성이 변경되면 모든 패키지의 캐시가 깨집니다.
+3. **배포 어려움**: 특정 패키지만 배포하기 어렵습니다.
+4. **의존성 파악 곤란**: 어떤 패키지가 무엇을 사용하는지 알기 어렵습니다.
+
+#### ✅ 올바른 방식: 각 패키지에 필요한 의존성만 설치
+
+```json
+// apps/web/package.json
+{
+  "name": "web",
+  "dependencies": {
+    "react": "^19.2.0",
+    "next": "^16.0.1",
+    "@repo/ui": "workspace:*"
+  }
+}
+```
+
+```json
+// packages/ui/package.json
+{
+  "name": "@repo/ui",
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}
+```
+
+```json
+// packages/math/package.json
+{
+  "name": "@repo/math",
+  "devDependencies": {
+    "typescript": "latest"
+  }
+  // React 불필요 - 순수 유틸리티 라이브러리
+}
+```
+
+**장점:**
+
+- 각 패키지가 독립적으로 동작 가능
+- 의존성 변경 시 해당 패키지만 재빌드
+- 패키지별 의존성이 명확히 드러남
+- 선택적 배포 가능
+
+### 의존성 추가하는 방법
+
+#### 단일 패키지에 의존성 추가
+
+```bash
+# ui 패키지에 lodash 추가
+pnpm add lodash --filter ui
+
+# web 앱에 axios 추가
+pnpm add axios --filter web
+
+# math 패키지에 개발 의존성 추가
+pnpm add -D vitest --filter @repo/math
+```
+
+#### 여러 패키지에 동시에 추가
+
+```bash
+# 여러 패키지에 jest 추가
+pnpm add jest --save-dev --filter=web --filter=@repo/ui --filter=docs
+
+# packages 디렉토리의 모든 패키지에 추가
+pnpm add typescript --save-dev --filter="./packages/*"
+
+# apps 디렉토리의 모든 패키지에 추가
+pnpm add dotenv --filter="./apps/*"
+```
+
+**필터 패턴:**
+
+- `--filter=web`: 특정 패키지
+- `--filter=@repo/ui`: 스코프가 있는 패키지
+- `--filter="./packages/*"`: 특정 디렉토리의 모든 패키지
+- `--filter="...^@main"`: git 변경사항이 있는 패키지
+
+### 루트에는 최소한의 의존성만
+
+루트 `package.json`에는 **레포지토리 전체를 관리하는 도구**만 설치합니다.
+
+```json
+// 루트 package.json
+{
+  "name": "turbo",
+  "private": true,
+  "devDependencies": {
+    "turbo": "^2.6.1", // 빌드 오케스트레이터
+    "prettier": "^3.6.2", // 코드 포매터
+    "typescript": "5.9.2" // 타입 체크 (선택적)
+  }
+}
+```
+
+**루트에 적합한 도구:**
+
+- `turbo`: Turborepo CLI
+- `husky`: Git hooks 관리
+- `lint-staged`: 스테이징된 파일 린팅
+- `prettier`: 코드 포매팅
+- `commitlint`: 커밋 메시지 검증
+
+**프로젝트 구조 예시:**
+
+```
+monorepo/
+├── package.json              ← turbo, prettier만
+├── apps/
+│   └── web/
+│       └── package.json      ← next, react, @repo/ui
+├── packages/
+│   ├── ui/
+│   │   └── package.json      ← react, react-dom
+│   └── math/
+│       └── package.json      ← typescript만 (devDep)
+```
+
+## Turborepo와 패키지 매니저의 역할 구분
+
+많은 사람들이 혼동하는 부분인데, **Turborepo는 의존성을 관리하지 않습니다**.
+
+### Turborepo의 역할 (빌드 오케스트레이터)
+
+```bash
+turbo build
+```
+
+- ✅ 빌드 순서 관리
+- ✅ 태스크 실행 순서 결정
+- ✅ 캐싱 및 재사용
+- ✅ 병렬 실행 최적화
+- ❌ 의존성 다운로드 (하지 않음)
+- ❌ node_modules 관리 (하지 않음)
+
+### 패키지 매니저의 역할 (pnpm, npm, yarn)
+
+```bash
+pnpm install
+```
+
+- ✅ 의존성 다운로드
+- ✅ 의존성 추가/삭제
+- ✅ node_modules 구조 관리
+- ✅ 버전 해석 및 심볼릭 링크 생성
+- ✅ 워크스페이스 연결
+- ❌ 빌드 순서 관리 (하지 않음)
+
+**비유:**
+
+- **패키지 매니저** = 재료 준비 담당 (의존성 설치)
+- **Turborepo** = 요리 순서 지휘자 (빌드 오케스트레이션)
+
+## 의존성 버전 통일하기
+
+모노레포에서는 여러 패키지가 동일한 의존성을 사용하는 경우가 많습니다. 버전을 통일하면 일관성 있는 빌드와 관리가 쉬워집니다.
+
+### 문제 상황
+
+```json
+// apps/web/package.json
+{
+  "devDependencies": {
+    "typescript": "5.9.2"
+  }
+}
+
+// packages/ui/package.json
+{
+  "devDependencies": {
+    "typescript": "5.9.2"
+  }
+}
+
+// packages/math/package.json
+{
+  "devDependencies": {
+    "typescript": "latest"  // ❌ 버전이 다름!
+  }
+}
+```
+
+**문제점:**
+
+- 타입 체크 결과가 패키지마다 다를 수 있음
+- 빌드 동작이 일관되지 않음
+- 디버깅이 어려움
+
+### 해결 방법 1: 패키지 매니저 명령어 사용
+
+```bash
+# 모든 패키지의 typescript를 최신 버전으로 업데이트
+pnpm up --recursive typescript@latest
+
+# 특정 버전으로 통일
+pnpm up --recursive typescript@5.9.2
+
+# React 버전 통일
+pnpm up --recursive react@19.2.0 react-dom@19.2.0
+```
+
+**결과:**
+
+```json
+// 모든 package.json에서
+{
+  "devDependencies": {
+    "typescript": "5.9.2" // ✅ 통일됨
+  }
+}
+```
+
+### 해결 방법 2: 전용 도구 활용
+
+#### syncpack 사용
+
+```bash
+# syncpack 설치 (루트에)
+pnpm add -D -w syncpack
+
+# 버전 불일치 확인
+pnpm syncpack list-mismatches
+
+# 자동으로 버전 통일
+pnpm syncpack fix-mismatches
+```
+
+**package.json에 스크립트 추가:**
+
+```json
+// 루트 package.json
+{
+  "scripts": {
+    "check-versions": "syncpack list-mismatches",
+    "fix-versions": "syncpack fix-mismatches"
+  }
+}
+```
+
+**실행 예시:**
+
+```bash
+$ pnpm check-versions
+
+Mismatches:
+  typescript
+    5.9.2 in apps/web/package.json
+    5.9.2 in packages/ui/package.json
+    latest in packages/math/package.json  ← 불일치!
+
+$ pnpm fix-versions
+✓ Fixed 1 mismatch
+```
+
+#### 다른 도구들
+
+- **manypkg**: Atlassian에서 만든 모노레포 관리 도구
+- **sherif**: 의존성 버전 검증 도구
+
+### 해결 방법 3: pnpm Catalog 사용 (권장)
+
+pnpm의 Catalog 기능을 사용하면 중앙에서 버전을 관리할 수 있습니다.
+
+#### 1단계: Catalog 정의
+
+```yaml
+# pnpm-workspace.yaml
+catalog:
+  react: ^19.2.0
+  react-dom: ^19.2.0
+  typescript: 5.9.2
+  next: ^16.0.1
+  eslint: ^9.39.1
+
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+#### 2단계: 각 패키지에서 사용
+
+```json
+// apps/web/package.json
+{
+  "dependencies": {
+    "react": "catalog:", // catalog에서 가져옴
+    "react-dom": "catalog:",
+    "next": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "eslint": "catalog:"
+  }
+}
+```
+
+```json
+// packages/ui/package.json
+{
+  "dependencies": {
+    "react": "catalog:", // 동일한 버전 자동 적용
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}
+```
+
+**장점:**
+
+1. **단일 진실 공급원**: 버전을 한 곳에서만 관리
+2. **자동 동기화**: catalog를 참조하는 모든 패키지가 동일한 버전 사용
+3. **업데이트 간편**: catalog만 수정하면 모든 패키지에 반영
+4. **타입 안전**: pnpm이 catalog 참조를 검증
+
+#### 3단계: 버전 업데이트
+
+```yaml
+# pnpm-workspace.yaml
+catalog:
+  react: ^19.3.0 # 버전만 변경
+  react-dom: ^19.3.0
+  typescript: 5.10.0 # 여기만 수정하면
+```
+
+```bash
+pnpm install
+# 모든 패키지가 새 버전으로 업데이트됨
+```
+
+## 실전 예제: 의존성 구조 최적화
+
+현재 프로젝트의 의존성 구조를 살펴보겠습니다.
+
+### 현재 구조
+
+```json
+// 루트 package.json
+{
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "turbo": "^2.6.1",
+    "typescript": "5.9.2"      // 루트에도 있음
+  }
+}
+
+// apps/web/package.json
+{
+  "dependencies": {
+    "@repo/math": "workspace:*",
+    "@repo/ui": "workspace:*",
+    "next": "^16.0.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2"      // web에도 있음
+  }
+}
+
+// packages/ui/package.json
+{
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2"      // ui에도 있음
+  }
+}
+
+// packages/math/package.json
+{
+  "devDependencies": {
+    "typescript": "latest"     // ❌ 버전이 다름!
+  }
+}
+```
+
+### Catalog로 최적화
+
+```yaml
+# pnpm-workspace.yaml
+catalog:
+  # 프레임워크
+  next: ^16.0.1
+  react: ^19.2.0
+  react-dom: ^19.2.0
+
+  # 개발 도구
+  typescript: 5.9.2
+  eslint: ^9.39.1
+  prettier: ^3.6.2
+
+  # 타입 정의
+  "@types/node": ^22.15.3
+  "@types/react": 19.2.2
+  "@types/react-dom": 19.2.2
+
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+```json
+// apps/web/package.json
+{
+  "dependencies": {
+    "@repo/math": "workspace:*",
+    "@repo/ui": "workspace:*",
+    "next": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:"
+  }
+}
+```
+
+```json
+// packages/ui/package.json
+{
+  "dependencies": {
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}
+```
+
+```json
+// packages/math/package.json
+{
+  "devDependencies": {
+    "typescript": "catalog:" // ✅ 이제 통일됨
+  }
+}
+```
+
+## 의존성 관리 체크리스트
+
+모노레포에서 의존성을 올바르게 관리하고 있는지 확인해보세요.
+
+- [ ] 각 패키지가 사용하는 의존성을 해당 패키지의 `package.json`에 명시했나요?
+- [ ] 루트 `package.json`에는 레포지토리 관리 도구만 설치했나요?
+- [ ] 동일한 의존성의 버전이 패키지마다 다르지 않나요?
+- [ ] 내부 패키지 의존성을 `workspace:*` 프로토콜로 명시했나요?
+- [ ] pnpm Catalog나 syncpack 같은 도구로 버전을 관리하고 있나요?
+
+## 정리
+
+Turborepo 환경에서 의존성 관리의 핵심 원칙:
+
+1. **사용하는 곳에 설치**: 각 패키지가 필요한 의존성만 명시
+2. **루트는 최소화**: 레포지토리 관리 도구만 루트에 설치
+3. **버전 통일**: Catalog나 전용 도구로 버전 일관성 유지
+4. **역할 구분 이해**: Turborepo는 빌드 관리, 패키지 매니저는 의존성 관리
+5. **내부 의존성 명시**: `workspace:*`로 워크스페이스 패키지 연결
+
+이러한 원칙을 따르면 각 패키지가 독립적으로 동작하면서도, 전체 모노레포가 일관되게 관리됩니다. 또한 Turborepo의 캐싱 기능을 최대한 활용할 수 있습니다.
+
+다음 글에서는 `turbo.json`을 통한 태스크 설정과 의존성 기반 빌드 파이프라인 구성에 대해 알아보겠습니다.

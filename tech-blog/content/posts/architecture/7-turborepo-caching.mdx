@@ -1,0 +1,1131 @@
+---
+title: "[Turborepo] 7. 캐싱 (Caching)"
+description: "Turborepo 캐싱 기능과 모범 사례"
+category: "architecture"
+tags: ["turborepo", "monorepo", "build", "optimization"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+
+# Turborepo 캐싱 (Caching)
+
+Turborepo의 가장 강력한 기능은 **같은 일을 절대 두 번 하지 않는다**는 것입니다. 캐싱 가능한 작업이라면 캐싱된 데이터의 fingerprint와 비교하여 작업을 복원합니다.
+
+Remote Caching을 활성화하면 전체 팀과 CI 간에 캐시를 공유하여 더욱 강력해집니다.
+
+## 캐싱의 기본 원리
+
+Turborepo는 작업이 **결정론적(deterministic)**이라고 가정합니다. 즉, 동일한 입력에 대해 항상 동일한 출력을 생성한다고 가정합니다.
+
+**결정론적 작업:**
+
+- TypeScript 컴파일
+- 린팅
+- 테스트 실행
+- 빌드
+
+**비결정론적 작업 (캐싱 부적합):**
+
+- 배포 (외부 서비스 호출)
+- DB 마이그레이션
+- 현재 시간 기반 작업
+- 랜덤 값 생성
+
+## 첫 번째 캐시 히트 경험하기
+
+### 초기 빌드
+
+```bash
+$ turbo build
+
+• Packages in scope: @repo/math, @repo/ui, web
+• Running build in 3 packages
+
+@repo/math:build: cache miss, executing [1.2s]
+@repo/math:build:
+@repo/math:build: > @repo/math@0.0.0 build
+@repo/math:build: > tsc
+@repo/math:build:
+
+web:build: cache miss, executing [8.5s]
+web:build:
+web:build: > web@0.1.0 build
+web:build: > next build
+web:build:
+web:build:    ✓ Creating an optimized production build
+
+Tasks:    2 successful, 2 total
+Cached:   0 cached, 2 total
+Time:     9.7s
+```
+
+**캐시 미스:** 처음 실행이므로 모든 작업이 실제로 실행됩니다.
+
+### 두 번째 빌드 (코드 변경 없음)
+
+```bash
+$ turbo build
+
+• Packages in scope: @repo/math, @repo/ui, web
+• Running build in 3 packages
+
+@repo/math:build: cache hit, replaying logs [0.1s]
+web:build: cache hit, replaying logs [0.1s]
+
+Tasks:    2 successful, 2 total
+Cached:   2 cached, 2 total
+Time:     0.3s >>> FULL TURBO
+```
+
+**캐시 히트:** 코드가 변경되지 않았으므로 캐시에서 복원합니다.
+
+**속도 비교:**
+
+- 첫 실행: 9.7초
+- 두 번째 실행: 0.3초
+- **32배 빠름!**
+
+## 무엇이 캐시되나요?
+
+### 1. Task Outputs (작업 출력)
+
+`turbo.json`의 `outputs` 키에 정의된 파일들이 캐시됩니다.
+
+**현재 프로젝트 설정:**
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "build": {
+      "outputs": [
+        ".next/**", // Next.js 빌드 결과
+        "!.next/cache/**", // 캐시 폴더는 제외
+        "dist/**" // TypeScript 빌드 결과
+      ]
+    }
+  }
+}
+```
+
+**캐시되는 파일:**
+
+```
+packages/math/
+└── dist/              ← 캐시됨
+    ├── add.js
+    ├── add.d.ts
+    ├── subtract.js
+    └── subtract.d.ts
+
+apps/web/
+└── .next/             ← 캐시됨 (cache 폴더 제외)
+    ├── static/
+    ├── server/
+    └── BUILD_ID
+```
+
+**주의:** `outputs`를 선언하지 않으면 Turborepo는 파일을 캐시하지 않습니다!
+
+### 2. Logs (로그)
+
+Turborepo는 항상 작업의 터미널 출력을 캡처하여 캐시 히트 시 재생합니다.
+
+**첫 실행:**
+
+```bash
+$ turbo build
+
+@repo/math:build: Building...
+@repo/math:build: src/add.ts → dist/add.js
+@repo/math:build: src/subtract.ts → dist/subtract.js
+@repo/math:build: ✓ Compiled successfully
+```
+
+**두 번째 실행 (캐시 히트):**
+
+```bash
+$ turbo build
+
+@repo/math:build: cache hit, replaying logs...
+@repo/math:build: Building...
+@repo/math:build: src/add.ts → dist/add.js
+@repo/math:build: src/subtract.ts → dist/subtract.js
+@repo/math:build: ✓ Compiled successfully
+```
+
+동일한 로그가 재생됩니다!
+
+### 로그 출력 제어
+
+```bash
+# 에러만 표시
+turbo build --output-logs=errors-only
+
+# 전체 로그 표시
+turbo build --output-logs=full
+
+# 새로운 로그만 표시 (캐시된 것은 요약만)
+turbo build --output-logs=new-only
+
+# 해시만 표시 (로그 없음)
+turbo build --output-logs=hash-only
+
+# 로그 숨김
+turbo build --output-logs=none
+```
+
+**실행 예시:**
+
+```bash
+$ turbo build --output-logs=errors-only
+
+@repo/math:build: cache hit [0.1s]
+web:build: cache hit [0.1s]
+
+Tasks:    2 successful, 2 total
+Cached:   2 cached, 2 total
+Time:     0.2s >>> FULL TURBO
+```
+
+## Task Inputs: 캐시 키 계산
+
+Turborepo가 캐시 히트 여부를 결정하는 핵심 메커니즘입니다.
+
+### 해시의 개념
+
+Turborepo는 두 개의 해시를 생성합니다:
+
+1. **글로벌 해시 (Global Hash)**: 전체 프로젝트에 영향
+2. **패키지 해시 (Package Hash)**: 특정 패키지에만 영향
+
+둘 중 하나라도 변경되면 캐시 미스가 발생합니다.
+
+### 글로벌 해시 (Global Hash)
+
+전체 프로젝트에 영향을 미치는 것들입니다. 변경 시 **모든 패키지의 캐시가 무효화**됩니다.
+
+#### 1. turbo.json 변경
+
+```json
+// turbo.json 수정 전
+{
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**"]
+    }
+  }
+}
+
+// turbo.json 수정 후
+{
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**", "types/**"]  // outputs 변경
+    }
+  }
+}
+```
+
+**결과:** 모든 패키지의 `build` 캐시 무효화
+
+#### 2. 루트 의존성 변경
+
+```json
+// package.json (루트) 수정 전
+{
+  "devDependencies": {
+    "typescript": "5.9.2"
+  }
+}
+
+// package.json (루트) 수정 후
+{
+  "devDependencies": {
+    "typescript": "5.10.0"  // 버전 변경
+  }
+}
+```
+
+**결과:** 모든 패키지의 캐시 무효화
+
+#### 3. globalDependencies
+
+특정 파일을 글로벌 의존성으로 지정할 수 있습니다.
+
+```json
+// turbo.json
+{
+  "globalDependencies": [".env", "tsconfig.json"],
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**"]
+    }
+  }
+}
+```
+
+**동작:**
+
+```bash
+# .env 파일 수정
+$ echo "API_KEY=new_key" >> .env
+
+# 모든 패키지의 캐시 무효화
+$ turbo build
+@repo/math:build: cache miss (globalDependencies changed)
+web:build: cache miss (globalDependencies changed)
+```
+
+#### 4. globalEnv
+
+특정 환경 변수를 글로벌 입력으로 지정할 수 있습니다.
+
+```json
+// turbo.json
+{
+  "globalEnv": ["NODE_ENV", "GITHUB_TOKEN"],
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**"]
+    }
+  }
+}
+```
+
+**동작:**
+
+```bash
+# 환경 변수 변경
+$ export NODE_ENV=production
+
+# 모든 패키지의 캐시 무효화
+$ turbo build
+@repo/math:build: cache miss (globalEnv changed)
+web:build: cache miss (globalEnv changed)
+```
+
+#### 5. 패스스루 인수 (Pass-through Arguments)
+
+명령어에 전달되는 인수도 해시에 포함됩니다.
+
+```bash
+# 첫 실행
+$ turbo build
+@repo/math:build: cache miss, executing
+
+# 두 번째 실행 (동일한 명령어)
+$ turbo build
+@repo/math:build: cache hit
+
+# 인수 추가 (다른 명령어)
+$ turbo build -- --verbose
+@repo/math:build: cache miss (arguments changed)
+```
+
+### 패키지 해시 (Package Hash)
+
+특정 패키지에만 영향을 미치는 것들입니다. 변경 시 **해당 패키지와 그것에 의존하는 패키지만 캐시 무효화**됩니다.
+
+#### 1. 소스 코드 변경
+
+```typescript
+// packages/math/src/add.ts 수정 전
+export const add = (a: number, b: number) => a + b;
+
+// packages/math/src/add.ts 수정 후
+export const add = (a: number, b: number, c: number = 0) => a + b + c;
+```
+
+**결과:**
+
+```bash
+$ turbo build
+
+@repo/math:build: cache miss (source changed)
+web:build: cache miss (dependency changed)
+@repo/ui:build: cache hit (no dependency on math)
+```
+
+**캐시 무효화:**
+
+- `@repo/math`: 소스 코드 변경
+- `web`: `@repo/math`에 의존하므로 재빌드
+- `@repo/ui`: `@repo/math`에 의존하지 않으므로 캐시 히트
+
+#### 2. 패키지 의존성 변경
+
+```json
+// packages/math/package.json 수정 전
+{
+  "devDependencies": {
+    "typescript": "latest"
+  }
+}
+
+// packages/math/package.json 수정 후
+{
+  "devDependencies": {
+    "typescript": "latest",
+    "vitest": "^1.0.0"  // 새 의존성 추가
+  }
+}
+```
+
+**결과:**
+
+```bash
+$ turbo build
+
+@repo/math:build: cache miss (dependencies changed)
+web:build: cache miss (dependency changed)
+```
+
+#### 3. package.json 메타데이터 변경
+
+```json
+// packages/math/package.json 수정 전
+{
+  "name": "@repo/math",
+  "version": "1.0.0"
+}
+
+// packages/math/package.json 수정 후
+{
+  "name": "@repo/math",
+  "version": "1.1.0"  // 버전 변경
+}
+```
+
+**결과:** `@repo/math`와 그것에 의존하는 패키지의 캐시 무효화
+
+#### 4. 패키지별 turbo.json
+
+```json
+// packages/math/turbo.json 수정
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**", "types/**"] // outputs 추가
+    }
+  }
+}
+```
+
+**결과:** `@repo/math`의 `build` 캐시만 무효화
+
+### 해시 계산 흐름
+
+```
+입력 수집
+  ↓
+글로벌 입력
+  - turbo.json
+  - 루트 package.json
+  - globalDependencies
+  - globalEnv
+  - 패스스루 인수
+  ↓
+패키지 입력
+  - 소스 코드
+  - package.json
+  - 패키지 의존성
+  - 패키지별 turbo.json
+  ↓
+해시 생성
+  ↓
+캐시 확인
+  ↓
+히트? → 복원
+미스? → 실행
+```
+
+## Remote Caching
+
+기본적으로 Turborepo는 작업 결과를 `.turbo/cache` 디렉토리에 로컬로 저장합니다. Remote Caching을 활성화하면 이 캐시를 팀원 및 CI와 공유할 수 있습니다.
+
+### Remote Cache 활성화
+
+#### 1단계: Remote Cache 제공자로 인증
+
+```bash
+npx turbo login
+```
+
+브라우저가 열리고 Vercel 계정으로 로그인합니다.
+
+#### 2단계: 저장소를 Remote Cache에 연결
+
+```bash
+npx turbo link
+```
+
+프로젝트를 Vercel의 Remote Cache에 연결합니다.
+
+#### 3단계: 작업 실행
+
+```bash
+turbo build
+```
+
+이제 작업 결과가 자동으로 Remote Cache로 전송됩니다!
+
+### Remote Cache 동작 방식
+
+**개발자 A:**
+
+```bash
+# 첫 빌드
+$ turbo build
+@repo/math:build: cache miss, executing [1.2s]
+web:build: cache miss, executing [8.5s]
+
+# Remote Cache에 업로드
+Uploading 2 artifacts to remote cache...
+```
+
+**개발자 B (다른 머신):**
+
+```bash
+# 같은 코드로 빌드
+$ turbo build
+@repo/math:build: cache hit (remote), replaying logs [0.2s]
+web:build: cache hit (remote), replaying logs [0.3s]
+
+# Remote Cache에서 다운로드
+Downloaded 2 artifacts from remote cache
+```
+
+**CI 서버:**
+
+```bash
+# PR 빌드
+$ turbo build
+@repo/math:build: cache hit (remote), replaying logs [0.1s]
+web:build: cache hit (remote), replaying logs [0.2s]
+
+# 이미 개발자가 빌드했으므로 즉시 완료!
+```
+
+### Remote Cache 장점
+
+1. **팀 전체 속도 향상**: 한 명이 빌드하면 모두가 혜택
+2. **CI 시간 단축**: 로컬에서 이미 빌드했다면 CI는 즉시 완료
+3. **일관성**: 모든 환경에서 동일한 빌드 결과
+4. **비용 절감**: CI 실행 시간 감소
+
+### 기본 제공자
+
+Turborepo는 설정 없이 **Vercel Remote Cache**를 기본으로 사용합니다.
+
+다른 제공자:
+
+- Self-hosted (직접 호스팅)
+- AWS S3
+- Google Cloud Storage
+- Azure Blob Storage
+
+## 캐싱 문제 해결 (Troubleshooting)
+
+### --dry 플래그: 실행 계획 확인
+
+실제로 실행하지 않고 무엇이 실행될지 확인합니다.
+
+```bash
+$ turbo build --dry
+
+Tasks to Run
+@repo/math:build
+  Task            = build
+  Hash            = abc123def456
+  Cached (Local)  = false
+  Cached (Remote) = false
+  Command         = tsc
+  Outputs         = dist/**
+  Log File        = .turbo/turbo-build.log
+  Dependencies    = @repo/typescript-config
+  Dependents      = web
+
+web:build
+  Task            = build
+  Hash            = xyz789ghi012
+  Cached (Local)  = false
+  Cached (Remote) = false
+  Command         = next build
+  Outputs         = .next/**
+  Log File        = .turbo/turbo-build.log
+  Dependencies    = @repo/math, @repo/ui
+  Dependents      = (none)
+```
+
+**확인 사항:**
+
+- Hash: 해시 값
+- Cached: 캐시 상태
+- Outputs: 캐시될 파일
+- Dependencies: 의존성
+
+### --summarize 플래그: 실행 요약
+
+작업의 모든 입력, 출력 등에 대한 개요를 얻을 수 있습니다.
+
+```bash
+$ turbo build --summarize
+
+# 실행 후 요약 파일 생성
+.turbo/runs/[hash].json
+```
+
+**요약 파일 내용:**
+
+```json
+{
+  "id": "abc123",
+  "version": "1",
+  "turboVersion": "2.6.1",
+  "globalHashSummary": {
+    "globalFileHashMap": {
+      "turbo.json": "def456",
+      "package.json": "ghi789"
+    },
+    "rootExternalDepsHash": "jkl012",
+    "globalCacheKey": "mno345"
+  },
+  "tasks": [
+    {
+      "taskId": "@repo/math:build",
+      "task": "build",
+      "package": "@repo/math",
+      "hash": "pqr678",
+      "inputs": {
+        "src/add.ts": "stu901",
+        "src/subtract.ts": "vwx234",
+        "package.json": "yza567"
+      },
+      "hashOfExternalDependencies": "bcd890",
+      "cache": {
+        "local": false,
+        "remote": false,
+        "status": "MISS"
+      },
+      "command": "tsc",
+      "outputs": ["dist/**"],
+      "logFile": ".turbo/turbo-build.log",
+      "dependencies": ["@repo/typescript-config"],
+      "dependents": ["web"]
+    }
+  ]
+}
+```
+
+### 입력 디버깅
+
+캐시를 히트할 것으로 예상했는데 미스하는 경우:
+
+```bash
+# 첫 실행
+$ turbo build --summarize
+@repo/math:build: cache miss
+
+# 요약 파일 확인
+$ cat .turbo/runs/[hash1].json | jq '.tasks[0].inputs'
+{
+  "src/add.ts": "abc123",
+  "package.json": "def456"
+}
+
+# 두 번째 실행
+$ turbo build --summarize
+@repo/math:build: cache miss (예상: 히트)
+
+# 요약 파일 비교
+$ cat .turbo/runs/[hash2].json | jq '.tasks[0].inputs'
+{
+  "src/add.ts": "abc123",
+  "package.json": "xyz789"  # ← 변경됨!
+}
+```
+
+`package.json`이 변경되어 캐시 미스가 발생했습니다.
+
+### 출력 디버깅
+
+캐시 히트가 예상한 파일을 복원하지 않는 경우:
+
+```bash
+$ turbo build --summarize
+
+# 요약 파일 확인
+$ cat .turbo/runs/[hash].json | jq '.tasks[0].outputs'
+[
+  "dist/**"
+]
+
+# 실제 복원된 파일 확인
+$ ls -la packages/math/dist/
+total 16
+-rw-r--r-- 1 user user 123 Nov 26 10:00 add.js
+-rw-r--r-- 1 user user  45 Nov 26 10:00 add.d.ts
+```
+
+`outputs`에 명시된 파일만 복원됩니다.
+
+## 캐싱 제어
+
+### 캐싱 끄기
+
+#### 영구적으로 비활성화 (turbo.json)
+
+```json
+{
+  "tasks": {
+    "deploy": {
+      "cache": false // 항상 실행
+    }
+  }
+}
+```
+
+#### 일시적으로 비활성화 (명령줄)
+
+```bash
+# 읽기와 쓰기 모두 비활성화
+turbo build --no-cache
+turbo build --cache=false
+```
+
+**사용 사례:**
+
+- 배포 작업
+- DB 마이그레이션
+- 외부 서비스 호출
+- 디버깅
+
+### 캐시 덮어쓰기
+
+캐시된 작업을 강제로 다시 실행합니다.
+
+```bash
+turbo build --force
+```
+
+**동작:**
+
+- 캐시를 읽지 않음 (강제 실행)
+- 캐시에 쓰기는 함 (새 캐시 생성)
+
+**사용 사례:**
+
+- 캐시가 손상된 경우
+- 외부 요인으로 재빌드 필요
+- 디버깅
+
+**차이점:**
+
+```
+--no-cache:
+  읽기 ✗
+  쓰기 ✗
+
+--force:
+  읽기 ✗
+  쓰기 ✓
+```
+
+## 캐싱이 적합하지 않은 경우
+
+### 1. 매우 빠르게 실행되는 작업
+
+```bash
+# 작업 실행 시간: 0.1초
+# 캐시 복원 시간: 0.2초
+```
+
+캐시 복원이 실제 실행보다 느립니다!
+
+**해결책:**
+
+```json
+{
+  "tasks": {
+    "quick-task": {
+      "cache": false
+    }
+  }
+}
+```
+
+### 2. 출력 자산이 엄청나게 큰 작업
+
+```bash
+# 빌드 결과물: 5GB
+# 캐시 업로드/다운로드: 30초
+# 실제 빌드: 10초
+```
+
+캐시 전송이 빌드보다 느립니다!
+
+**해결책:**
+
+```json
+{
+  "tasks": {
+    "build-large": {
+      "cache": false
+    }
+  }
+}
+```
+
+또는 outputs를 최소화:
+
+```json
+{
+  "tasks": {
+    "build": {
+      "outputs": [
+        "dist/**",
+        "!dist/large-assets/**" // 큰 파일 제외
+      ]
+    }
+  }
+}
+```
+
+### 3. 자체 캐싱이 있는 스크립트
+
+```bash
+# Next.js는 자체 캐싱 메커니즘이 있음
+# Webpack도 자체 캐싱이 있음
+```
+
+이중 캐싱은 불필요합니다.
+
+**해결책:**
+
+도구의 자체 캐싱을 활용하거나, Turborepo 캐싱만 사용:
+
+```json
+{
+  "tasks": {
+    "build": {
+      "outputs": [".next/**", "!.next/cache/**"]
+    }
+  }
+}
+```
+
+## 실전 캐싱 전략
+
+### 전략 1: 로컬 개발
+
+```json
+{
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**"]
+    },
+    "dev": {
+      "cache": false, // 개발 서버는 캐싱 안함
+      "persistent": true
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "outputs": ["coverage/**"]
+    }
+  }
+}
+```
+
+### 전략 2: CI/CD
+
+```json
+{
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "outputs": ["coverage/**"]
+    },
+    "deploy": {
+      "dependsOn": ["build", "test"],
+      "cache": false // 배포는 항상 실행
+    }
+  }
+}
+```
+
+### 전략 3: 환경별 설정
+
+```json
+{
+  "globalEnv": ["NODE_ENV"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "env": ["API_URL", "PUBLIC_KEY"] // 환경 변수 포함
+    }
+  }
+}
+```
+
+**동작:**
+
+```bash
+# 개발 환경
+$ NODE_ENV=development turbo build
+@repo/math:build: cache miss (NODE_ENV=development)
+
+# 프로덕션 환경
+$ NODE_ENV=production turbo build
+@repo/math:build: cache miss (NODE_ENV=production)
+
+# 다시 개발 환경
+$ NODE_ENV=development turbo build
+@repo/math:build: cache hit (NODE_ENV=development)
+```
+
+환경별로 별도의 캐시를 유지합니다!
+
+## 캐시 관리
+
+### 로컬 캐시 위치
+
+```
+.turbo/
+└── cache/
+    ├── abc123def456.tar.zst  # 압축된 캐시 파일
+    ├── xyz789ghi012.tar.zst
+    └── ...
+```
+
+### 로컬 캐시 정리
+
+```bash
+# 캐시 디렉토리 삭제
+rm -rf .turbo/cache
+
+# 다음 빌드 시 새로 생성
+turbo build
+```
+
+### 캐시 크기 확인
+
+```bash
+# 캐시 크기 확인
+du -sh .turbo/cache
+# 출력: 1.2G .turbo/cache
+
+# 캐시 파일 개수
+ls -1 .turbo/cache | wc -l
+# 출력: 156
+```
+
+### .gitignore 설정
+
+캐시는 Git에 커밋하지 않습니다.
+
+```gitignore
+# .gitignore
+.turbo/
+```
+
+## 캐싱 모범 사례
+
+### 1. outputs를 정확히 지정
+
+```json
+// ❌ 너무 광범위
+{
+  "outputs": ["**"]  // 모든 파일 캐싱 (느림)
+}
+
+// ✅ 필요한 것만
+{
+  "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+}
+```
+
+### 2. globalDependencies 활용
+
+```json
+{
+  "globalDependencies": [".env", "tsconfig.json", ".eslintrc.js"]
+}
+```
+
+이 파일들이 변경되면 모든 캐시가 무효화됩니다.
+
+### 3. 환경 변수 명시
+
+```json
+{
+  "globalEnv": ["NODE_ENV"],
+  "tasks": {
+    "build": {
+      "env": ["API_URL", "PUBLIC_KEY"]
+    }
+  }
+}
+```
+
+환경 변수가 변경되면 캐시가 무효화됩니다.
+
+### 4. 비결정론적 작업은 캐싱 비활성화
+
+```json
+{
+  "tasks": {
+    "deploy": {
+      "cache": false
+    },
+    "db:migrate": {
+      "cache": false
+    }
+  }
+}
+```
+
+### 5. Remote Caching 활용
+
+```bash
+# 팀 전체가 캐시 공유
+npx turbo login
+npx turbo link
+```
+
+## 캐싱 성능 측정
+
+### 캐시 히트율 확인
+
+```bash
+$ turbo build
+
+Tasks:    10 successful, 10 total
+Cached:   8 cached, 10 total
+Time:     2.3s >>> FULL TURBO
+
+# 캐시 히트율: 80% (8/10)
+```
+
+### 시간 절약 계산
+
+```bash
+# 캐시 없이
+$ turbo build --force
+Time:     45.2s
+
+# 캐시 사용
+$ turbo build
+Time:     1.8s
+
+# 절약: 43.4초 (96% 빠름)
+```
+
+### CI 시간 절약
+
+```bash
+# 첫 PR 빌드 (캐시 없음)
+$ turbo build test lint
+Time:     8m 32s
+
+# 두 번째 PR 빌드 (캐시 있음)
+$ turbo build test lint
+Time:     1m 12s
+
+# 절약: 7분 20초 (86% 빠름)
+```
+
+## 실전 시나리오
+
+### 시나리오 1: 새 기능 개발
+
+```bash
+# 1. 브랜치 생성
+$ git checkout -b feature/new-feature
+
+# 2. 코드 수정
+$ vim packages/math/src/multiply.ts
+
+# 3. 빌드 (캐시 미스)
+$ turbo build
+@repo/math:build: cache miss (source changed)
+web:build: cache miss (dependency changed)
+
+# 4. 테스트 (캐시 미스)
+$ turbo test
+@repo/math:test: cache miss (source changed)
+
+# 5. 다시 빌드 (캐시 히트)
+$ turbo build
+@repo/math:build: cache hit
+web:build: cache hit
+```
+
+### 시나리오 2: PR 리뷰
+
+```bash
+# 개발자가 로컬에서 빌드
+$ turbo build
+@repo/math:build: cache miss, executing
+# Remote Cache에 업로드
+
+# CI에서 PR 검증
+$ turbo build test lint
+@repo/math:build: cache hit (remote)
+@repo/math:test: cache miss, executing
+@repo/math:lint: cache miss, executing
+# 빌드는 건너뛰고 테스트와 린트만 실행
+```
+
+### 시나리오 3: 브랜치 전환
+
+```bash
+# feature 브랜치에서 빌드
+$ git checkout feature/new-feature
+$ turbo build
+@repo/math:build: cache miss, executing
+
+# main 브랜치로 전환
+$ git checkout main
+$ turbo build
+@repo/math:build: cache hit (이전에 빌드했음)
+
+# 다시 feature 브랜치로
+$ git checkout feature/new-feature
+$ turbo build
+@repo/math:build: cache hit (이전에 빌드했음)
+```
+
+브랜치별로 캐시가 유지됩니다!
+
+## 정리
+
+Turborepo 캐싱의 핵심:
+
+1. **결정론적 작업**: 동일한 입력 → 동일한 출력
+2. **해시 기반**: 글로벌 해시 + 패키지 해시
+3. **자동 복원**: 파일 + 로그
+4. **Remote Caching**: 팀 전체 공유
+5. **선택적 비활성화**: 비결정론적 작업
+
+**캐싱 체크리스트:**
+
+- [ ] `outputs` 정확히 지정
+- [ ] `globalDependencies` 설정
+- [ ] 환경 변수 명시 (`env`, `globalEnv`)
+- [ ] 비결정론적 작업은 `cache: false`
+- [ ] Remote Caching 활성화
+- [ ] `.gitignore`에 `.turbo/` 추가
+
+Turborepo의 강력한 캐싱 기능을 활용하면 개발 속도를 획기적으로 향상시킬 수 있습니다. 특히 Remote Caching을 통해 팀 전체와 CI가 캐시를 공유하면 더욱 강력해집니다.
+
+다음 글에서는 Turborepo의 고급 기능과 최적화 기법에 대해 알아보겠습니다.

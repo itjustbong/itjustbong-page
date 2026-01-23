@@ -1,0 +1,1085 @@
+---
+title: "[Turborepo] 9. 환경 변수 사용하기 (Using Environment Variables)"
+description: "Turborepo 환경 변수 관리 방법과 모범 사례"
+category: "architecture"
+tags: ["turborepo", "monorepo", "build", "optimization"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+
+# Turborepo 환경 변수 사용하기 (Using Environment Variables)
+
+환경 변수는 애플리케이션 설정을 관리하는 핵심 요소입니다. Turborepo에서 환경 변수를 올바르게 관리하지 않으면 캐싱이 제대로 작동하지 않거나 예상치 못한 동작이 발생할 수 있습니다.
+
+이 글에서는 Turborepo에서 환경 변수를 안전하고 효율적으로 관리하는 방법을 알아보겠습니다.
+
+## 환경 변수 관리의 핵심 질문
+
+Turborepo에서 환경 변수를 다룰 때 세 가지 핵심 질문을 고려해야 합니다:
+
+1. **환경 변수가 작업 해시에 포함되어 있나요?**
+   - 환경 변수 변경 시 캐시가 무효화되어야 하는가?
+
+2. **어떤 Environment Mode를 사용할 것인가?**
+   - Strict Mode (기본값) vs Loose Mode
+
+3. **.env 파일을 올바르게 처리했나요?**
+   - 파일 변경 감지 설정
+
+## 작업 해시에 환경 변수 추가하기
+
+환경 변수 값이 변경되면 캐시가 무효화되도록 `env` 또는 `globalEnv`에 등록해야 합니다.
+
+### 기본 설정
+
+```json
+// turbo.json
+{
+  "globalEnv": ["NODE_ENV", "CI"],
+  "tasks": {
+    "build": {
+      "env": ["API_URL", "API_KEY", "DATABASE_URL"]
+    }
+  }
+}
+```
+
+### env vs globalEnv
+
+#### env: 작업별 환경 변수
+
+특정 작업에만 영향을 미치는 환경 변수입니다.
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL", "API_KEY"]
+    },
+    "lint": {
+      "env": [] // 환경 변수 불필요
+    }
+  }
+}
+```
+
+**동작:**
+
+```bash
+# API_URL 변경
+$ export API_URL=https://new-api.com
+
+# build만 캐시 미스
+$ turbo build lint
+@repo/math:build: cache miss (API_URL changed)
+@repo/math:lint: cache hit (no env dependency)
+```
+
+**사용 사례:**
+
+- API 엔드포인트
+- 데이터베이스 URL
+- 인증 키
+
+#### globalEnv: 전역 환경 변수
+
+모든 작업에 영향을 미치는 환경 변수입니다.
+
+```json
+{
+  "globalEnv": ["NODE_ENV", "CI"],
+  "tasks": {
+    "build": {},
+    "lint": {},
+    "test": {}
+  }
+}
+```
+
+**동작:**
+
+```bash
+# NODE_ENV 변경
+$ export NODE_ENV=production
+
+# 모든 작업 캐시 미스
+$ turbo build lint test
+@repo/math:build: cache miss (NODE_ENV changed)
+@repo/math:lint: cache miss (NODE_ENV changed)
+@repo/math:test: cache miss (NODE_ENV changed)
+```
+
+**사용 사례:**
+
+- NODE_ENV
+- CI 플래그
+- 빌드 모드
+
+### 와일드카드 지원
+
+특정 접두사를 가진 환경 변수를 쉽게 관리할 수 있습니다.
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": [
+        "API_*", // API_URL, API_KEY, API_VERSION 등
+        "NEXT_PUBLIC_*", // Next.js 공개 변수
+        "DATABASE_*" // DATABASE_URL, DATABASE_POOL_SIZE 등
+      ]
+    }
+  }
+}
+```
+
+**매칭 예시:**
+
+```bash
+export API_URL=https://api.com          # ✓ API_* 매칭
+export API_KEY=secret123                # ✓ API_* 매칭
+export NEXT_PUBLIC_SITE_URL=https://... # ✓ NEXT_PUBLIC_* 매칭
+export DATABASE_URL=postgres://...      # ✓ DATABASE_* 매칭
+export RANDOM_VAR=value                 # ✗ 매칭 안됨
+```
+
+### 부정 패턴
+
+특정 패턴을 제외할 수 있습니다.
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": [
+        "NEXT_PUBLIC_*", // 모든 NEXT_PUBLIC_* 포함
+        "!NEXT_PUBLIC_DEV_*" // NEXT_PUBLIC_DEV_*는 제외
+      ]
+    }
+  }
+}
+```
+
+**매칭 예시:**
+
+```bash
+export NEXT_PUBLIC_API_URL=https://...  # ✓ 포함
+export NEXT_PUBLIC_SITE_NAME=MyApp      # ✓ 포함
+export NEXT_PUBLIC_DEV_MODE=true        # ✗ 제외됨
+export NEXT_PUBLIC_DEV_PORT=3000        # ✗ 제외됨
+```
+
+### Framework Inference (자동 감지)
+
+Turborepo는 프레임워크를 자동으로 감지하여 관련 환경 변수를 포함합니다.
+
+**Next.js:**
+
+- `NEXT_PUBLIC_*` 자동 포함
+
+**Vite:**
+
+- `VITE_*` 자동 포함
+
+**Create React App:**
+
+- `REACT_APP_*` 자동 포함
+
+```json
+// Next.js 프로젝트
+{
+  "tasks": {
+    "build": {
+      "env": ["API_KEY"]
+      // NEXT_PUBLIC_*는 자동으로 포함됨!
+    }
+  }
+}
+```
+
+## Environment Modes
+
+Environment Mode는 런타임에 작업에서 사용할 수 있는 환경 변수를 제어합니다.
+
+### Strict Mode (기본값)
+
+`env`와 `globalEnv`에 지정된 환경 변수만 사용 가능합니다.
+
+**설정:**
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL", "API_KEY"]
+    }
+  }
+}
+```
+
+**동작:**
+
+```bash
+# 환경 변수 설정
+$ export API_URL=https://api.example.com
+$ export API_KEY=secret123
+$ export DATABASE_URL=postgres://localhost/db  # 선언 안 함!
+
+# 빌드 실행
+$ turbo build
+```
+
+```typescript
+// apps/web/src/config.ts
+const config = {
+  apiUrl: process.env.API_URL, // ✓ 사용 가능
+  apiKey: process.env.API_KEY, // ✓ 사용 가능
+  dbUrl: process.env.DATABASE_URL, // ✗ undefined! (선언 안 함)
+};
+
+// 결과: 빌드 실패!
+// Error: DATABASE_URL is undefined
+```
+
+**장점:**
+
+- 안전: 누락된 환경 변수 발견
+- 명확: 어떤 변수가 필요한지 문서화
+- 실수 방지: 선언하지 않은 변수 사용 불가
+
+**단점:**
+
+- 설정 필요: 모든 변수를 명시해야 함
+
+### Loose Mode
+
+모든 환경 변수를 사용할 수 있습니다.
+
+**실행:**
+
+```bash
+turbo build --env-mode=loose
+```
+
+**동작:**
+
+```bash
+# 모든 환경 변수 설정
+$ export API_URL=https://api.com
+$ export API_KEY=secret123
+$ export DATABASE_URL=postgres://localhost/db
+$ export RANDOM_VAR=value
+
+# Loose Mode로 빌드
+$ turbo build --env-mode=loose
+```
+
+```typescript
+// apps/web/src/config.ts
+const config = {
+  apiUrl: process.env.API_URL, // ✓ 사용 가능
+  apiKey: process.env.API_KEY, // ✓ 사용 가능
+  dbUrl: process.env.DATABASE_URL, // ✓ 사용 가능
+  random: process.env.RANDOM_VAR, // ✓ 사용 가능
+};
+
+// 결과: 빌드 성공!
+```
+
+**장점:**
+
+- 편리: 설정 불필요
+- 빠른 시작: 즉시 사용 가능
+
+**단점:**
+
+- 위험: 누락된 변수 발견 어려움
+- 실수하기 쉬움: 오타나 누락 감지 안됨
+
+### 언제 Loose Mode를 사용할까?
+
+```bash
+# 마이그레이션 중
+turbo build --env-mode=loose
+
+# 디버깅
+turbo build --env-mode=loose --output-logs=full
+
+# 레거시 프로젝트
+turbo build --env-mode=loose
+```
+
+**권장:** 가능한 한 Strict Mode 사용
+
+## Passthrough 변수
+
+해시에는 포함하지 않지만 런타임에 사용할 수 있는 변수입니다.
+
+### 개념
+
+```
+env: 해시에 포함 + 런타임 사용
+passThroughEnv: 해시에 미포함 + 런타임 사용
+```
+
+### 설정
+
+```json
+// turbo.json
+{
+  "globalPassThroughEnv": ["CI", "GITHUB_ACTIONS", "VERCEL"],
+  "tasks": {
+    "build": {
+      "env": ["API_URL", "API_KEY"],
+      "passThroughEnv": ["BUILD_ID", "DEPLOY_ENV"]
+    }
+  }
+}
+```
+
+### 동작 예시
+
+```bash
+# 환경 변수 설정
+$ export API_URL=https://api.com      # 해시에 포함
+$ export BUILD_ID=12345               # 해시에 미포함
+$ export CI=true                      # 해시에 미포함
+
+# 첫 빌드
+$ turbo build
+@repo/math:build: cache miss, executing
+# 캐시 생성: hash_abc123
+
+# BUILD_ID만 변경
+$ export BUILD_ID=67890
+
+# 두 번째 빌드
+$ turbo build
+@repo/math:build: cache hit (BUILD_ID는 해시에 없음)
+# 하지만 BUILD_ID는 런타임에 사용 가능!
+
+# API_URL 변경
+$ export API_URL=https://new-api.com
+
+# 세 번째 빌드
+$ turbo build
+@repo/math:build: cache miss (API_URL은 해시에 있음)
+# 새 캐시 생성: hash_xyz789
+```
+
+### 사용 사례
+
+#### CI/CD 메타데이터
+
+```json
+{
+  "globalPassThroughEnv": [
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITHUB_SHA",
+    "GITHUB_REF",
+    "VERCEL",
+    "VERCEL_GIT_COMMIT_SHA"
+  ]
+}
+```
+
+**이유:** CI 환경 정보는 빌드 결과에 영향을 주지 않지만 로깅이나 분석에 필요합니다.
+
+#### 빌드 메타데이터
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"],
+      "passThroughEnv": ["BUILD_ID", "BUILD_NUMBER", "DEPLOY_ENV", "VERSION"]
+    }
+  }
+}
+```
+
+**이유:** 빌드 ID는 빌드 결과에 영향을 주지 않지만 추적에 필요합니다.
+
+#### 디버그 플래그
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"],
+      "passThroughEnv": ["DEBUG", "VERBOSE", "LOG_LEVEL"]
+    }
+  }
+}
+```
+
+**이유:** 디버그 플래그는 로그 출력만 변경하고 빌드 결과는 동일합니다.
+
+## .env 파일 처리하기
+
+Turborepo는 직접 `.env` 파일을 로드하지 않고 프레임워크나 `dotenv`에 맡기지만, **파일 변경사항을 알아야 캐시 해싱에 사용**할 수 있습니다.
+
+### 문제 상황
+
+```json
+// turbo.json (잘못된 설정)
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"]
+      // .env 파일을 inputs에 추가 안함!
+    }
+  }
+}
+```
+
+```bash
+# .env 파일 수정
+$ echo "API_URL=https://new-api.com" > .env
+
+# 빌드
+$ turbo build
+@repo/math:build: cache hit  # ⚠️ 문제!
+```
+
+**문제:** `.env` 파일이 변경되었지만 Turborepo는 모르고 이전 캐시를 사용합니다!
+
+### 해결책: inputs에 추가
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"],
+      "inputs": ["$TURBO_DEFAULT$", ".env"]
+    }
+  }
+}
+```
+
+```bash
+# .env 파일 수정
+$ echo "API_URL=https://new-api.com" > .env
+
+# 빌드
+$ turbo build
+@repo/math:build: cache miss (.env changed)  # ✓ 정상!
+```
+
+### 여러 .env 파일 처리
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env*" // .env, .env.local, .env.production 등
+      ]
+    }
+  }
+}
+```
+
+### globalDependencies 사용
+
+모든 작업에 영향을 미치는 경우:
+
+```json
+{
+  "globalDependencies": [".env"],
+  "tasks": {
+    "build": {},
+    "test": {},
+    "lint": {}
+  }
+}
+```
+
+**동작:**
+
+```bash
+# .env 파일 수정
+$ echo "NODE_ENV=production" > .env
+
+# 모든 작업 캐시 미스
+$ turbo build test lint
+@repo/math:build: cache miss (.env changed)
+@repo/math:test: cache miss (.env changed)
+@repo/math:lint: cache miss (.env changed)
+```
+
+## 실전 설정 예시
+
+### Next.js 프로젝트
+
+**현재 프로젝트의 개선된 설정:**
+
+```json
+// turbo.json
+{
+  "globalEnv": ["NODE_ENV", "CI"],
+  "globalPassThroughEnv": ["VERCEL", "VERCEL_ENV", "VERCEL_GIT_COMMIT_SHA"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": [
+        "API_URL",
+        "API_KEY",
+        "DATABASE_URL"
+        // NEXT_PUBLIC_*는 자동 포함
+      ],
+      "passThroughEnv": ["BUILD_ID"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.production.local",
+        ".env.local",
+        ".env.production",
+        ".env"
+      ],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.development.local",
+        ".env.local",
+        ".env.development",
+        ".env"
+      ]
+    },
+    "test": {
+      "env": ["TEST_DATABASE_URL"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.test.local", ".env.test"]
+    }
+  }
+}
+```
+
+**환경 변수 파일 구조:**
+
+```
+apps/web/
+├── .env                      # 기본값
+├── .env.local                # 로컬 오버라이드 (Git 무시)
+├── .env.development          # 개발 환경
+├── .env.development.local    # 개발 로컬 (Git 무시)
+├── .env.production           # 프로덕션 환경
+├── .env.production.local     # 프로덕션 로컬 (Git 무시)
+└── .env.test                 # 테스트 환경
+```
+
+**.gitignore:**
+
+```gitignore
+# 로컬 환경 변수 (Git에 커밋 안함)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+```
+
+### Vite 프로젝트
+
+```json
+{
+  "globalEnv": ["NODE_ENV"],
+  "tasks": {
+    "build": {
+      "env": [
+        "VITE_API_URL",
+        "VITE_API_KEY"
+        // VITE_*는 자동 포함
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.production.local",
+        ".env.production",
+        ".env.local",
+        ".env"
+      ],
+      "outputs": ["dist/**"]
+    }
+  }
+}
+```
+
+### 풀스택 모노레포
+
+```json
+{
+  "globalEnv": ["NODE_ENV", "CI"],
+  "globalPassThroughEnv": ["GITHUB_ACTIONS", "VERCEL"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": ["DATABASE_URL", "API_*"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**", ".next/**"]
+    },
+    "db:migrate": {
+      "cache": false,
+      "env": ["DATABASE_URL"]
+    },
+    "test": {
+      "env": ["TEST_DATABASE_URL"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.test"]
+    }
+  }
+}
+```
+
+## 모범 사례
+
+### 1. 각 패키지마다 .env 파일 관리
+
+```
+monorepo/
+├── .env                    # 루트 공통 설정
+├── apps/
+│   ├── web/
+│   │   ├── .env           # web 전용
+│   │   └── .env.local
+│   └── api/
+│       ├── .env           # api 전용
+│       └── .env.local
+└── packages/
+    └── database/
+        └── .env           # database 전용
+```
+
+**장점:**
+
+- 패키지별 독립적 설정
+- 명확한 책임 분리
+- 배포 시 필요한 것만 포함
+
+### 2. eslint-config-turbo 사용
+
+```bash
+pnpm add -D eslint-config-turbo
+```
+
+```json
+// .eslintrc.js
+{
+  "extends": ["turbo"]
+}
+```
+
+**기능:**
+
+- 패키지 코드에서 사용되지만 `turbo.json`에 명시되지 않은 환경 변수를 찾아줌
+- 실수 방지
+
+**예시:**
+
+```typescript
+// apps/web/src/config.ts
+const config = {
+  apiUrl: process.env.API_URL, // ⚠️ turbo.json에 없음!
+};
+```
+
+```bash
+$ pnpm lint
+
+Error: Environment variable "API_URL" is used but not declared in turbo.json
+  → Add "API_URL" to tasks.build.env in turbo.json
+```
+
+### 3. 환경별 설정 분리
+
+```json
+// turbo.json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL", "DATABASE_URL"]
+    },
+    "build:production": {
+      "env": ["API_URL", "DATABASE_URL", "SENTRY_DSN"]
+    },
+    "build:staging": {
+      "env": ["API_URL", "DATABASE_URL"]
+    }
+  }
+}
+```
+
+### 4. 민감한 정보 보호
+
+```gitignore
+# 절대 커밋하지 말 것!
+.env.local
+.env.*.local
+.env.production
+
+# 예시 파일만 커밋
+.env.example
+```
+
+```bash
+# .env.example
+API_URL=https://api.example.com
+API_KEY=your_api_key_here
+DATABASE_URL=postgres://localhost:5432/mydb
+```
+
+### 5. 문서화
+
+```markdown
+# 환경 변수
+
+## 필수 변수
+
+- `API_URL`: API 엔드포인트 URL
+- `API_KEY`: API 인증 키
+- `DATABASE_URL`: 데이터베이스 연결 문자열
+
+## 선택 변수
+
+- `SENTRY_DSN`: Sentry 에러 추적 (프로덕션만)
+- `ANALYTICS_ID`: 분석 도구 ID
+
+## 설정 방법
+
+1. `.env.example`을 `.env.local`로 복사
+2. 실제 값으로 변경
+3. `turbo dev` 실행
+```
+
+## 일반적인 문제와 해결책
+
+### 문제 1: 환경 변수가 undefined
+
+**증상:**
+
+```typescript
+const apiUrl = process.env.API_URL; // undefined
+```
+
+**원인:**
+
+1. `turbo.json`에 선언 안함 (Strict Mode)
+2. `.env` 파일 로드 안됨
+3. 환경 변수 설정 안함
+
+**해결:**
+
+```json
+// 1. turbo.json에 추가
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"]
+    }
+  }
+}
+```
+
+```bash
+# 2. 환경 변수 설정
+export API_URL=https://api.com
+
+# 또는 .env 파일 생성
+echo "API_URL=https://api.com" > .env
+```
+
+### 문제 2: 캐시가 무효화되지 않음
+
+**증상:**
+
+```bash
+# .env 파일 수정
+$ echo "API_URL=https://new-api.com" > .env
+
+# 빌드
+$ turbo build
+@repo/math:build: cache hit  # 이전 캐시 사용!
+```
+
+**원인:**
+
+- `.env` 파일이 `inputs`에 없음
+
+**해결:**
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"]
+    }
+  }
+}
+```
+
+### 문제 3: 모든 작업이 캐시 미스
+
+**증상:**
+
+```bash
+# 작은 변경
+$ export BUILD_ID=12345
+
+# 모든 작업 캐시 미스
+$ turbo build test lint
+```
+
+**원인:**
+
+- `BUILD_ID`가 `env`에 있지만 `passThroughEnv`에 있어야 함
+
+**해결:**
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL"],
+      "passThroughEnv": ["BUILD_ID"] // 해시에 미포함
+    }
+  }
+}
+```
+
+### 문제 4: Loose Mode에서 변수 누락
+
+**증상:**
+
+```bash
+$ turbo build --env-mode=loose
+# 빌드 성공하지만 런타임 에러!
+```
+
+**원인:**
+
+- Loose Mode는 모든 변수를 허용하지만 누락 감지 안함
+
+**해결:**
+
+```bash
+# Strict Mode 사용 (권장)
+$ turbo build
+
+# 또는 명시적으로 선언
+{
+  "tasks": {
+    "build": {
+      "env": ["API_URL", "API_KEY", "DATABASE_URL"]
+    }
+  }
+}
+```
+
+### 문제 5: Framework Inference 충돌
+
+**증상:**
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["NEXT_PUBLIC_API_URL"] // 중복!
+    }
+  }
+}
+```
+
+**원인:**
+
+- `NEXT_PUBLIC_*`는 자동으로 포함됨
+
+**해결:**
+
+```json
+{
+  "tasks": {
+    "build": {
+      "env": ["API_KEY"] // NEXT_PUBLIC_*는 생략
+    }
+  }
+}
+```
+
+## 디버깅 팁
+
+### 1. 환경 변수 확인
+
+```bash
+# 현재 환경 변수 출력
+$ env | grep API
+API_URL=https://api.com
+API_KEY=secret123
+
+# turbo가 인식하는 변수 확인
+$ turbo build --dry
+```
+
+### 2. 해시 확인
+
+```bash
+# 요약 파일 생성
+$ turbo build --summarize
+
+# 환경 변수 해시 확인
+$ cat .turbo/runs/[hash].json | jq '.tasks[0].environmentVariables'
+{
+  "configured": ["API_URL", "API_KEY"],
+  "inferred": ["NEXT_PUBLIC_SITE_URL"],
+  "passthrough": ["BUILD_ID"]
+}
+```
+
+### 3. 로그 확인
+
+```bash
+# 상세 로그
+$ turbo build --verbosity=2
+
+# 환경 변수 로그
+Environment variables:
+  API_URL: https://api.com
+  API_KEY: ****** (hidden)
+  NEXT_PUBLIC_SITE_URL: https://example.com
+```
+
+### 4. .env 파일 확인
+
+```bash
+# .env 파일 내용 확인
+$ cat .env
+API_URL=https://api.com
+API_KEY=secret123
+
+# .env 파일 변경 감지 확인
+$ turbo build --dry | grep ".env"
+Inputs: [..., ".env"]
+```
+
+## 환경 변수 체크리스트
+
+### 설정 체크리스트
+
+- [ ] 필요한 환경 변수를 `env` 또는 `globalEnv`에 선언
+- [ ] `.env` 파일을 `inputs`에 추가
+- [ ] 민감한 정보는 `.gitignore`에 추가
+- [ ] `.env.example` 파일 생성
+- [ ] `eslint-config-turbo` 설치 및 설정
+- [ ] 문서화 (README.md)
+
+### 보안 체크리스트
+
+- [ ] `.env.local` 파일은 Git에 커밋 안함
+- [ ] 프로덕션 환경 변수는 별도 관리
+- [ ] API 키는 환경 변수로만 관리
+- [ ] 로그에 민감한 정보 출력 안함
+- [ ] CI/CD에서 환경 변수 암호화
+
+### 성능 체크리스트
+
+- [ ] 빌드 결과에 영향 없는 변수는 `passThroughEnv` 사용
+- [ ] 전역 변수는 `globalEnv`에만 선언
+- [ ] 와일드카드로 패턴 매칭 활용
+- [ ] 불필요한 변수는 제외
+
+## 정리
+
+Turborepo 환경 변수 관리의 핵심:
+
+1. **작업 해시에 포함**
+   - `env`: 작업별 환경 변수
+   - `globalEnv`: 전역 환경 변수
+   - 와일드카드: 패턴 매칭
+
+2. **Environment Mode**
+   - Strict Mode (기본값): 안전하지만 설정 필요
+   - Loose Mode: 편리하지만 위험
+
+3. **Passthrough 변수**
+   - 해시에 미포함 + 런타임 사용
+   - CI/CD 메타데이터, 빌드 ID 등
+
+4. **.env 파일 처리**
+   - `inputs`에 추가
+   - 환경별 파일 분리
+   - `.gitignore` 설정
+
+5. **모범 사례**
+   - 패키지별 .env 관리
+   - `eslint-config-turbo` 사용
+   - 민감한 정보 보호
+   - 문서화
+
+**환경 변수 설정 예시:**
+
+```json
+// turbo.json (완전한 예시)
+{
+  "globalEnv": ["NODE_ENV", "CI"],
+  "globalPassThroughEnv": ["GITHUB_ACTIONS", "VERCEL", "VERCEL_ENV"],
+  "globalDependencies": [".env"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": ["API_URL", "API_KEY", "DATABASE_URL", "NEXT_PUBLIC_*"],
+      "passThroughEnv": ["BUILD_ID", "DEPLOY_ENV"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.production.local",
+        ".env.local",
+        ".env.production",
+        ".env"
+      ],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env.development.local",
+        ".env.local",
+        ".env.development",
+        ".env"
+      ]
+    },
+    "test": {
+      "env": ["TEST_DATABASE_URL"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.test"]
+    }
+  }
+}
+```
+
+환경 변수를 올바르게 관리하면 캐싱이 정확하게 작동하고, 보안이 강화되며, 팀 협업이 원활해집니다.
+
+---
+
+## Turborepo 시리즈 완료!
+
+이것으로 Turborepo 시리즈를 모두 마칩니다.
+
+**시리즈 목록:**
+
+1. Turborepo 시작하기
+2. 레포지토리 구조 잡기
+3. 의존성 관리하기
+4. 내부 패키지 만들기
+5. 태스크 설정하기
+6. 태스크 실행하기
+7. 캐싱
+8. 애플리케이션 개발하기
+9. 환경 변수 사용하기
+
+모노레포 개발에 도움이 되길 바랍니다. 즐거운 코딩 되세요! 🚀

@@ -1,0 +1,320 @@
+---
+title: "[React] React Hook Form 과 Zod 를 활용한 Form 관리"
+description: "From 관리의 성능 최적화 with 타입 검증"
+category: "frontend"
+tags: ["react", "react hook form","zod"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+# React Hook Form + Zod로 폼 최적화하기
+
+폼 구현은 웹 개발에서 가장 흔하면서도 까다로운 작업입니다. 입력 검증, 에러 처리, 상태 관리까지 신경 써야 할 게 많죠. 이번 글에서는 React Hook Form과 Zod를 활용해 타입 안전하고 성능 좋은 폼을 만드는 방법을 소개합니다.
+
+## 기존 방식의 문제점
+
+일반적인 React 폼 구현은 이렇게 생겼습니다:
+
+```tsx
+function LoginForm() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState({});
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+
+    // 수동 검증
+    const newErrors = {};
+    if (!email.includes("@")) {
+      newErrors.email = "올바른 이메일을 입력하세요";
+    }
+    if (password.length < 8) {
+      newErrors.password = "비밀번호는 8자 이상이어야 합니다";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    // API 호출...
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        value={email}
+        onChange={(e) => setEmail(e.target.value)} // 타이핑마다 리렌더링
+      />
+      {errors.email && <span>{errors.email}</span>}
+
+      <input
+        value={password}
+        onChange={(e) => setPassword(e.target.value)} // 타이핑마다 리렌더링
+      />
+      {errors.password && <span>{errors.password}</span>}
+
+      <button type="submit">로그인</button>
+    </form>
+  );
+}
+```
+
+**문제점:**
+
+- 타이핑할 때마다 전체 컴포넌트 리렌더링
+- 검증 로직이 흩어져 있음
+- 타입 안정성 부족
+- 반복적인 보일러플레이트 코드
+
+## React Hook Form + Zod 조합
+
+이제 개선된 방식을 살펴보겠습니다.
+
+### 1. Zod로 스키마 정의
+
+```tsx
+import { z } from "zod";
+
+const formSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1, { message: "Password is required" }),
+});
+```
+
+단 4줄로 검증 규칙을 선언적으로 정의했습니다. Zod는 자동으로 타입도 추론해줍니다.
+
+### 2. useForm으로 폼 초기화
+
+```tsx
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+const form = useForm<z.infer<typeof formSchema>>({
+  resolver: zodResolver(formSchema),
+  defaultValues: {
+    email: "",
+    password: "",
+  },
+});
+```
+
+`zodResolver`가 Zod 스키마를 React Hook Form과 연결해줍니다. 타입도 자동으로 추론됩니다.
+
+### 3. 폼 렌더링
+
+```tsx
+<Form {...form}>
+  <form onSubmit={form.handleSubmit(onSubmit)}>
+    <FormField
+      control={form.control}
+      name="email"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Email</FormLabel>
+          <FormControl>
+            <Input type="email" placeholder="m@example.com" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+
+    <FormField
+      control={form.control}
+      name="password"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Password</FormLabel>
+          <FormControl>
+            <Input type="password" placeholder="********" {...field} />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+
+    <Button type="submit">Sign in</Button>
+  </form>
+</Form>
+```
+
+### 4. Submit 핸들러
+
+```tsx
+const onSubmit = (data: z.infer<typeof formSchema>) => {
+  // data는 이미 검증된 상태
+  // data.email, data.password 자동완성 지원
+  authClient.signIn.email({
+    email: data.email,
+    password: data.password,
+  });
+};
+```
+
+## 핵심 이점
+
+### 1. 성능 최적화
+
+React Hook Form은 uncontrolled 방식을 사용합니다:
+
+```tsx
+// 일반 방식: 타이핑마다 리렌더링
+<input value={email} onChange={(e) => setEmail(e.target.value)} />
+
+// React Hook Form: ref로 DOM 직접 제어, 리렌더링 없음
+<Input {...field} />
+```
+
+타이핑 중에는 리렌더링이 발생하지 않고, 에러 발생/해결 시에만 해당 필드만 리렌더링됩니다.
+
+### 2. 타입 안정성
+
+```tsx
+const formSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+// 타입 자동 추론
+const onSubmit = (data: z.infer<typeof formSchema>) => {
+  data.email; // ✅ 자동완성
+  data.password; // ✅ 자동완성
+  data.username; // ❌ 타입 에러
+};
+```
+
+### 3. 선언적 검증
+
+```tsx
+// 복잡한 검증도 간단하게
+const formSchema = z
+  .object({
+    name: z.string().min(1, { message: "Name is required" }),
+    email: z.string().email(),
+    password: z.string().min(1, { message: "Password is required" }),
+    confirmPassword: z.string().min(1, { message: "Password is required" }),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"], // 에러를 confirmPassword 필드에 표시
+  });
+```
+
+`refine`을 사용하면 여러 필드를 비교하는 커스텀 검증도 쉽게 구현할 수 있습니다.
+
+### 4. 자동 에러 처리
+
+```tsx
+<FormField
+  name="password"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Password</FormLabel>
+      <FormControl>
+        <Input {...field} />
+      </FormControl>
+      <FormMessage /> {/* 에러 있으면 자동으로 표시 */}
+    </FormItem>
+  )}
+/>
+```
+
+`FormMessage` 컴포넌트가 자동으로 에러 메시지를 표시합니다. 에러가 없으면 아무것도 렌더링하지 않습니다.
+
+## 실전 예제: 회원가입 폼
+
+```tsx
+const formSchema = z
+  .object({
+    name: z.string().min(1, { message: "Name is required" }),
+    email: z.string().email(),
+    password: z
+      .string()
+      .min(8, { message: "Password must be at least 8 characters" }),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
+
+export const SignUpView = () => {
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  const onSubmit = (data: z.infer<typeof formSchema>) => {
+    authClient.signUp.email({
+      name: data.name,
+      email: data.email,
+      password: data.password,
+    });
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Name</FormLabel>
+              <FormControl>
+                <Input placeholder="John Doe" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* email, password, confirmPassword 필드들... */}
+
+        <Button type="submit">Sign up</Button>
+      </form>
+    </Form>
+  );
+};
+```
+
+## 컴포넌트 구조 이해하기
+
+폼 구조가 복잡해 보일 수 있지만, 각 컴포넌트는 명확한 역할이 있습니다:
+
+```tsx
+<FormField>           {/* 데이터 관리: 폼 상태와 필드 연결 */}
+  <FormItem>          {/* 레이아웃: 라벨, 입력, 에러를 묶는 컨테이너 */}
+    <FormLabel>       {/* 라벨: 에러 시 빨간색으로 변경 */}
+    <FormControl>     {/* 입력 래퍼: 접근성 속성 자동 추가 */}
+      <Input />       {/* 실제 입력 필드 */}
+    </FormControl>
+    <FormMessage />   {/* 에러 메시지: 에러 있을 때만 표시 */}
+  </FormItem>
+</FormField>
+```
+
+이 구조 덕분에:
+
+- ID 자동 연결 (라벨 클릭 시 input 포커스)
+- 접근성 속성 자동 추가 (aria-\*)
+- 에러 상태 자동 관리
+
+## 정리
+
+React Hook Form + Zod 조합은:
+
+- **성능**: 타이핑 중 리렌더링 없음
+- **타입 안정성**: 서버-클라이언트 타입 자동 동기화
+- **개발 경험**: 보일러플레이트 90% 감소
+- **유지보수성**: 검증 로직 한 곳에서 관리
+
+폼 구현이 복잡하다고 느껴졌다면, 이 조합을 시도해보세요. 코드는 줄어들고 성능은 좋아집니다.

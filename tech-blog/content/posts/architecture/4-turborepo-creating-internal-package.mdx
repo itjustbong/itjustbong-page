@@ -1,0 +1,729 @@
+---
+title: "[Turborepo] 4. 내부 패키지 만들기 (Creating an Internal Package)"
+description: "Turborepo 내부 패키지 생성 방법과 모범 사례"
+category: "architecture"
+tags: ["turborepo", "monorepo", "build", "optimization"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+# Turborepo 내부 패키지 만들기 (Creating an Internal Package)
+
+내부 패키지(Internal Package)는 모노레포를 구성하는 핵심 빌딩 블록입니다. 코드를 재사용 가능한 단위로 분리하고, Turborepo가 `package.json`을 기반으로 의존성 그래프를 구성하여 최적의 빌드 순서를 결정합니다.
+
+이 글에서는 실제로 내부 패키지를 만드는 과정을 단계별로 살펴보겠습니다.
+
+## 내부 패키지 생성하기
+
+수학 유틸리티 패키지(`@repo/math`)를 만들어보겠습니다. 현재 프로젝트에 실제로 존재하는 패키지를 예시로 사용합니다.
+
+### 1단계: 폴더 생성
+
+```bash
+mkdir -p packages/math/src
+cd packages/math
+```
+
+워크스페이스 설정(`pnpm-workspace.yaml`)에 `packages/*`가 포함되어 있다면, 이 폴더는 자동으로 패키지로 인식됩니다.
+
+### 2단계: package.json 작성
+
+패키지의 메타데이터와 진입점을 정의합니다.
+
+```json
+// packages/math/package.json
+{
+  "name": "@repo/math",
+  "type": "module",
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc"
+  },
+  "exports": {
+    "./add": {
+      "types": "./src/add.ts",
+      "default": "./dist/add.js"
+    },
+    "./subtract": {
+      "types": "./src/subtract.ts",
+      "default": "./dist/subtract.js"
+    }
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "typescript": "latest"
+  }
+}
+```
+
+**각 필드 설명:**
+
+#### name: 패키지 식별자
+
+```json
+"name": "@repo/math"
+```
+
+- 다른 패키지에서 이 이름으로 import합니다.
+- `@repo/` 스코프를 사용하여 외부 패키지와 구분합니다.
+- 워크스페이스 내에서 고유해야 합니다.
+
+#### exports: 진입점 정의
+
+```json
+"exports": {
+  "./add": {
+    "types": "./src/add.ts",
+    "default": "./dist/add.js"
+  }
+}
+```
+
+- 다른 패키지가 접근할 수 있는 경로를 명시적으로 정의합니다.
+- `types`: TypeScript 타입 정의 파일 위치
+- `default`: 실제 JavaScript 파일 위치
+
+**사용 예시:**
+
+```typescript
+// apps/web/app/page.tsx
+import { add } from "@repo/math/add"; // ✅ 가능
+import { subtract } from "@repo/math/subtract"; // ✅ 가능
+import { multiply } from "@repo/math/multiply"; // ❌ exports에 없음
+```
+
+#### devDependencies: 개발 의존성
+
+```json
+"devDependencies": {
+  "@repo/typescript-config": "workspace:*",
+  "typescript": "latest"
+}
+```
+
+- **내부 패키지도 devDependencies에 포함 가능**: `@repo/typescript-config`는 공유 TypeScript 설정 패키지입니다.
+- **빌드 순서 자동 결정**: Turborepo가 의존성 그래프를 분석하여 빌드 순서를 결정합니다.
+
+```
+빌드 순서:
+1. @repo/typescript-config (먼저)
+2. @repo/math (나중에)
+```
+
+### 3단계: tsconfig.json 설정
+
+TypeScript 컴파일 설정을 정의합니다.
+
+```json
+// packages/math/tsconfig.json
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+**각 필드 설명:**
+
+#### extends: 공유 설정 상속
+
+```json
+"extends": "@repo/typescript-config/base.json"
+```
+
+공유 TypeScript 설정을 상속받습니다. 실제 base.json 내용:
+
+```json
+// packages/typescript-config/base.json
+{
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "module": "NodeNext"
+  }
+}
+```
+
+#### outDir: 빌드 결과물 위치
+
+```json
+"outDir": "dist"
+```
+
+TypeScript 컴파일 결과가 저장될 디렉토리입니다.
+
+```
+packages/math/
+├── src/
+│   ├── add.ts
+│   └── subtract.ts
+└── dist/              ← 빌드 결과물
+    ├── add.js
+    ├── add.d.ts
+    ├── subtract.js
+    └── subtract.d.ts
+```
+
+#### rootDir: 소스 루트 디렉토리
+
+```json
+"rootDir": "src"
+```
+
+출력 파일의 디렉토리 구조를 결정합니다.
+
+**rootDir가 없을 때:**
+
+```
+src/
+├── add.ts
+├── subtract.ts
+└── utils/
+    └── helper.ts
+
+컴파일 후 (rootDir 없음) ❌
+dist/
+└── src/              ← src 폴더가 그대로 포함됨!
+    ├── add.js
+    ├── subtract.js
+    └── utils/
+        └── helper.js
+```
+
+**rootDir: "src" 설정 후:**
+
+```
+src/
+├── add.ts
+├── subtract.ts
+└── utils/
+    └── helper.ts
+
+컴파일 후 (rootDir: "src") ✅
+dist/
+├── add.js            ← src 폴더 제거, 내부 구조만 유지
+├── subtract.js
+└── utils/
+    └── helper.js
+```
+
+이렇게 하면 `package.json`의 `exports`에서 `./dist/add.js`로 정확히 참조할 수 있습니다.
+
+#### include/exclude: 컴파일 대상
+
+```json
+"include": ["src"],
+"exclude": ["node_modules", "dist"]
+```
+
+- `include`: 컴파일할 파일/폴더
+- `exclude`: 제외할 파일/폴더
+- **주의**: 이 필드들은 `extends`로 상속되지 않으므로 각 패키지에서 명시해야 합니다.
+
+### 4단계: 소스 코드 작성
+
+실제 기능을 구현합니다.
+
+```typescript
+// packages/math/src/add.ts
+export const add = (a: number, b: number) => a + b;
+```
+
+```typescript
+// packages/math/src/subtract.ts
+export const subtract = (a: number, b: number) => a - b;
+```
+
+간단하지만 명확한 단일 책임 함수들입니다.
+
+### 5단계: 다른 패키지에서 사용하기
+
+이제 `web` 앱에서 `@repo/math` 패키지를 사용해보겠습니다.
+
+#### 의존성 추가
+
+```json
+// apps/web/package.json
+{
+  "dependencies": {
+    "@repo/math": "workspace:*",
+    "@repo/ui": "workspace:*",
+    "next": "^16.0.1",
+    "react": "^19.2.0"
+  }
+}
+```
+
+```bash
+# 또는 명령어로 추가
+pnpm add @repo/math --filter web
+```
+
+#### 코드에서 import
+
+```typescript
+// apps/web/app/page.tsx
+import { add } from '@repo/math/add';
+import { subtract } from '@repo/math/subtract';
+
+export default function Page() {
+  const sum = add(10, 5);        // 15
+  const diff = subtract(10, 5);  // 5
+
+  return (
+    <div>
+      <p>10 + 5 = {sum}</p>
+      <p>10 - 5 = {diff}</p>
+    </div>
+  );
+}
+```
+
+### 6단계: turbo.json 설정
+
+Turborepo가 빌드 결과물을 캐싱하도록 설정합니다.
+
+```json
+// turbo.json
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [
+        ".next/**", // Next.js 앱의 빌드 결과
+        "!.next/cache/**", // 캐시 폴더는 제외
+        "dist/**" // TypeScript 라이브러리의 빌드 결과
+      ]
+    }
+  }
+}
+```
+
+**각 필드 설명:**
+
+#### dependsOn: 의존성 기반 빌드 순서
+
+```json
+"dependsOn": ["^build"]
+```
+
+- `^build`: "의존하는 패키지들의 build를 먼저 실행해"
+- Turborepo가 자동으로 순서를 결정합니다.
+
+```
+실행 순서:
+1. @repo/math:build (의존성 없음)
+2. web:build (@repo/math에 의존)
+```
+
+#### outputs: 캐싱할 파일
+
+```json
+"outputs": [
+  ".next/**",
+  "!.next/cache/**",
+  "dist/**"
+]
+```
+
+- 빌드 결과물이 저장되는 경로를 명시합니다.
+- `!`로 시작하면 제외 패턴입니다.
+
+## outputs가 중요한 이유
+
+`outputs` 설정은 Turborepo 캐싱의 핵심입니다. 이 설정이 없으면 심각한 문제가 발생할 수 있습니다.
+
+### outputs가 없을 때의 문제
+
+#### 시나리오 1: 첫 번째 빌드
+
+```bash
+$ turbo build
+
+@repo/math:build
+  ① 해시 계산: "abc123"
+  ② 캐시 확인: 없음 (새로운 환경)
+  ③ 실제 빌드: tsc 실행
+  ④ dist/ 생성 ✓
+  ⑤ outputs: [] (비어있음)
+  → 캐시에 아무것도 저장 안함! ⚠️
+
+web:build
+  → dist/add.js 찾음 ✓
+  → 빌드 성공
+```
+
+#### 시나리오 2: 코드 수정 후 빌드
+
+```bash
+# add.ts 수정
+$ turbo build
+
+@repo/math:build
+  ① 해시 계산: "xyz789" (변경됨)
+  ② 캐시 확인: 없음
+  ③ 실제 빌드: tsc 실행
+  ④ dist/ 재생성 ✓
+  ⑤ outputs: [] (비어있음)
+  → 캐시에 아무것도 저장 안함! ⚠️
+```
+
+#### 시나리오 3: 이전 버전으로 되돌림 (문제 발생!)
+
+```bash
+# 코드를 원래 버전으로 되돌림
+$ git checkout HEAD~1
+
+# 현재 상태:
+# - src/add.ts: 원래 버전으로 복구 ✓
+# - dist/add.js: 여전히 새 버전 (파일이 그대로 남아있음) ⚠️
+
+$ turbo build
+
+@repo/math:build
+  ① 해시 계산: "abc123" (첫 번째와 동일!)
+  ② 캐시 확인: 없음! (outputs에 저장 안했으니까)
+  ③ 소스 변경 없음 → 빌드 건너뛰기
+  ④ dist/ 복원 시도: outputs가 비어있어서 복원 안함
+  ⑤ 결과: dist/add.js는 여전히 새 버전! ⚠️
+
+web:build
+  → 잘못된 버전의 dist/add.js 사용
+  → 버그 발생! 🐛
+```
+
+### outputs가 있을 때의 정상 동작
+
+```json
+"outputs": ["dist/**"]
+```
+
+#### 동일한 시나리오 3 재현
+
+```bash
+$ git checkout HEAD~1
+$ turbo build
+
+@repo/math:build
+  ① 해시 계산: "abc123"
+  ② 캐시 확인: 있음! (첫 빌드 때 저장했음)
+  ③ 캐시에서 dist/ 복원 ✓
+  ④ 결과: 올바른 버전의 dist/add.js 사용 ✓
+
+web:build
+  → 올바른 버전 사용
+  → 정상 동작 ✓
+```
+
+### 캐싱 동작 원리
+
+Turborepo는 소스 코드의 해시 값으로 캐싱을 판단합니다.
+
+```
+캐시 키 = hash(소스 코드 + 의존성 + 환경 변수)
+```
+
+**캐시 히트 시:**
+
+1. 기존 `dist/` 폴더 무시
+2. 캐시에서 `outputs`에 명시된 파일들을 복원
+3. 덮어쓰기
+
+**이렇게 동작하는 이유:**
+
+- **일관성 보장**: 소스 코드와 빌드 결과물이 항상 일치
+- **브랜치 전환 안전**: git 브랜치를 변경해도 올바른 빌드 결과물 사용
+- **팀 협업**: 다른 개발자의 캐시를 공유해도 정확한 결과물 보장
+
+## 빌드 실행 및 확인
+
+모든 설정이 완료되었으니 빌드를 실행해봅시다.
+
+```bash
+$ turbo build
+
+• Packages in scope: @repo/math, web
+• Running build in 2 packages
+• Remote caching disabled
+
+@repo/math:build: cache miss, executing [1.2s]
+@repo/math:build:
+@repo/math:build: > @repo/math@0.0.0 build
+@repo/math:build: > tsc
+@repo/math:build:
+
+web:build: cache miss, executing [8.3s]
+web:build:
+web:build: > web@0.1.0 build
+web:build: > next build
+web:build:
+web:build:    ✓ Creating an optimized production build
+web:build:    ✓ Compiled successfully
+
+Tasks:    2 successful, 2 total
+Cached:   0 cached, 2 total
+Time:     9.5s
+```
+
+**빌드 순서 확인:**
+
+1. `@repo/math:build` 먼저 실행
+2. `web:build` 나중에 실행 (math에 의존)
+
+**생성된 파일 구조:**
+
+```
+packages/math/
+├── dist/
+│   ├── add.js
+│   ├── add.d.ts
+│   ├── subtract.js
+│   └── subtract.d.ts
+└── src/
+    ├── add.ts
+    └── subtract.ts
+```
+
+## 내부 패키지 설계 모범 사례
+
+### 1. 하나의 목적을 위한 하나의 패키지
+
+각 패키지는 명확한 단일 책임을 가져야 합니다.
+
+#### ✅ 좋은 예시
+
+```
+packages/
+├── math/           # 수학 유틸리티만
+├── date-utils/     # 날짜 처리만
+├── ui/             # UI 컴포넌트만
+└── api-client/     # API 통신만
+```
+
+**장점:**
+
+- 이해하기 쉬움
+- 의존성이 적음 → Turborepo 성능 향상
+- 독립적으로 테스트 가능
+- 선택적으로 사용 가능
+
+#### ❌ 나쁜 예시
+
+```
+packages/
+└── utils/          # 모든 유틸리티를 한 곳에
+    ├── math.ts
+    ├── date.ts
+    ├── string.ts
+    ├── array.ts
+    └── validation.ts
+```
+
+**문제점:**
+
+- 무엇을 하는 패키지인지 불명확
+- 불필요한 의존성까지 포함
+- 변경 시 전체 패키지 재빌드
+- 캐시 효율 저하
+
+### 2. 패키지 간 직접 파일 접근 금지
+
+패키지는 반드시 `package.json`의 `exports`를 통해서만 접근해야 합니다.
+
+#### ❌ 잘못된 방식: 상대 경로로 직접 접근
+
+```typescript
+// apps/web/app/page.tsx
+import { add } from "../../packages/math/src/add"; // ❌ 절대 금지!
+```
+
+**문제점:**
+
+1. **의존성 그래프 파괴**: Turborepo가 의존성을 인식하지 못함
+2. **빌드 순서 보장 안됨**: math가 빌드되기 전에 web이 빌드될 수 있음
+3. **캐싱 무효화**: 의존성 추적 실패로 캐시가 제대로 작동하지 않음
+4. **타입 체크 실패**: TypeScript가 올바른 타입을 찾지 못할 수 있음
+
+#### ✅ 올바른 방식: package.json 의존성 명시
+
+```json
+// apps/web/package.json
+{
+  "dependencies": {
+    "@repo/math": "workspace:*"
+  }
+}
+```
+
+```typescript
+// apps/web/app/page.tsx
+import { add } from "@repo/math/add"; // ✅ 올바른 방법
+```
+
+**장점:**
+
+- Turborepo가 의존성 그래프를 정확히 파악
+- 빌드 순서 자동 보장
+- 캐싱 정상 작동
+- 타입 체크 정확
+
+### 3. 명확한 진입점(Entrypoint) 정의
+
+`exports` 필드로 공개 API를 명확히 정의합니다.
+
+```json
+// packages/math/package.json
+{
+  "exports": {
+    "./add": "./dist/add.js",
+    "./subtract": "./dist/subtract.js"
+    // multiply는 의도적으로 노출하지 않음
+  }
+}
+```
+
+```typescript
+// 사용하는 쪽
+import { add } from "@repo/math/add"; // ✅ 가능
+import { multiply } from "@repo/math/multiply"; // ❌ 불가능 (exports에 없음)
+```
+
+**장점:**
+
+- 공개 API와 내부 구현 분리
+- 리팩토링 시 영향 범위 제한
+- 의도하지 않은 사용 방지
+
+## 실전 예제: 새 패키지 추가하기
+
+날짜 유틸리티 패키지를 추가해보겠습니다.
+
+### 1. 폴더 및 파일 생성
+
+```bash
+mkdir -p packages/date-utils/src
+```
+
+### 2. package.json 작성
+
+```json
+// packages/date-utils/package.json
+{
+  "name": "@repo/date-utils",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "exports": {
+    "./format": {
+      "types": "./src/format.ts",
+      "default": "./dist/format.js"
+    }
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "typescript": "latest"
+  }
+}
+```
+
+### 3. tsconfig.json 작성
+
+```json
+// packages/date-utils/tsconfig.json
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+### 4. 소스 코드 작성
+
+```typescript
+// packages/date-utils/src/format.ts
+export const formatDate = (date: Date): string => {
+  return date.toISOString().split("T")[0];
+};
+
+export const formatDateTime = (date: Date): string => {
+  return date.toISOString();
+};
+```
+
+### 5. web 앱에서 사용
+
+```bash
+pnpm add @repo/date-utils --filter web
+```
+
+```typescript
+// apps/web/app/page.tsx
+import { add } from '@repo/math/add';
+import { formatDate } from '@repo/date-utils/format';
+
+export default function Page() {
+  const sum = add(10, 5);
+  const today = formatDate(new Date());
+
+  return (
+    <div>
+      <p>Result: {sum}</p>
+      <p>Today: {today}</p>
+    </div>
+  );
+}
+```
+
+### 6. 빌드 확인
+
+```bash
+$ turbo build
+
+• Packages in scope: @repo/date-utils, @repo/math, web
+• Running build in 3 packages
+
+@repo/date-utils:build: cache miss, executing [1.1s]
+@repo/math:build: cache hit, replaying logs [0.1s]
+web:build: cache miss, executing [8.5s]
+
+Tasks:    3 successful, 3 total
+Cached:   1 cached, 3 total
+Time:     9.7s
+```
+
+Turborepo가 자동으로:
+
+1. `@repo/date-utils`와 `@repo/math`를 병렬로 빌드
+2. 두 패키지가 완료된 후 `web` 빌드
+3. `@repo/math`는 변경이 없어서 캐시 사용
+
+## 정리
+
+내부 패키지 생성의 핵심 포인트:
+
+1. **명확한 구조**: `package.json`, `tsconfig.json`, `src/` 디렉토리
+2. **exports 정의**: 공개 API를 명시적으로 선언
+3. **outputs 설정**: `turbo.json`에 빌드 결과물 경로 명시 (캐싱 필수)
+4. **단일 책임**: 하나의 패키지는 하나의 목적만
+5. **의존성 명시**: 상대 경로 금지, `package.json`에 명시
+6. **공유 설정**: TypeScript, ESLint 등의 설정을 패키지로 관리
+
+이러한 원칙을 따르면 Turborepo가 의존성 그래프를 정확히 파악하여 최적의 빌드 순서와 캐싱 전략을 적용할 수 있습니다.
+
+다음 글에서는 Turborepo의 태스크 설정과 파이프라인 최적화에 대해 자세히 알아보겠습니다.

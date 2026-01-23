@@ -1,0 +1,897 @@
+---
+title: "[Turborepo] 6. 태스크 실행하기 (Running Tasks)"
+description: "Turborepo 태스크 실행 방법과 필터링 기법"
+category: "architecture"
+tags: ["turborepo", "monorepo", "build", "optimization"]
+createdAt: "2026-01-15"
+updatedAt: "2026-01-15"
+published: true
+---
+
+# Turborepo 태스크 실행하기 (Running Tasks)
+
+Turborepo는 기본적으로 태스크를 병렬로 수행하고 캐싱합니다. 소스 코드 기반 해싱을 통해 CI 파이프라인과 개발 과정에서 워크플로우를 빠르게 재생할 수 있습니다.
+
+이 글에서는 Turborepo로 태스크를 실행하는 다양한 방법과 필터링 기법을 알아보겠습니다.
+
+## 태스크 실행 방법
+
+### package.json 스크립트 사용
+
+가장 일반적인 방법은 루트 `package.json`에 스크립트를 정의하는 것입니다.
+
+**현재 프로젝트의 실제 설정:**
+
+```json
+// package.json
+{
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "check-types": "turbo run check-types",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+  }
+}
+```
+
+**실행:**
+
+```bash
+pnpm run build       # 모든 패키지 빌드
+pnpm run dev         # 모든 개발 서버 시작
+pnpm run lint        # 모든 패키지 린트
+pnpm run check-types # 모든 패키지 타입 체크
+```
+
+**장점:**
+
+- 팀원들이 일관된 명령어 사용
+- IDE에서 스크립트 자동 완성
+- 추가 옵션을 스크립트에 미리 설정 가능
+
+### 글로벌 turbo 사용
+
+`turbo`를 전역으로 설치하면 더 세밀한 제어가 가능합니다.
+
+```bash
+# 전역 설치
+pnpm add turbo --global
+
+# 직접 사용
+turbo build
+turbo lint --filter=@repo/math
+turbo build --filter=[HEAD^1]
+```
+
+**장점:**
+
+- 필터와 플래그를 자유롭게 조합
+- 일회성 명령어 실행에 유용
+- CI/CD 스크립트에서 유연하게 사용
+
+## 자동 패키지 스코핑 (Automatic Package Scoping)
+
+패키지 디렉토리 안에서 `turbo`를 실행하면 자동으로 해당 패키지로 범위가 제한됩니다.
+
+**예시:**
+
+```bash
+# 루트에서 실행 - 모든 패키지
+$ turbo build
+@repo/math:build
+@repo/ui:build
+web:build
+docs:build
+
+# web 디렉토리에서 실행 - web만
+$ cd apps/web
+$ turbo build
+web:build  # web만 실행됨!
+```
+
+**동작:**
+
+```
+현재 위치: apps/web/
+  ↓
+turbo가 자동으로 감지
+  ↓
+--filter=web 자동 적용
+  ↓
+web 패키지만 실행
+```
+
+**주의:** 명시적으로 `--filter`를 사용하면 자동 스코핑이 무시됩니다.
+
+```bash
+cd apps/web
+turbo build --filter=@repo/math  # math만 실행 (web 무시)
+```
+
+## 동작 커스터마이징 (Customizing Behavior)
+
+`turbo run`의 동작을 조정할 수 있는 다양한 플래그가 있습니다.
+
+### 특정 패키지만 실행
+
+```bash
+# package.json에 정의된 기본 빌드
+pnpm run build  # 모든 패키지 빌드
+
+# 글로벌 turbo로 특정 패키지만 빌드
+turbo build --filter=@repo/math     # math 패키지만
+turbo build --filter=web            # web 앱만
+turbo build --filter=@repo/ui       # ui 패키지만
+```
+
+**실행 결과:**
+
+```bash
+$ turbo build --filter=@repo/math
+
+• Packages in scope: @repo/math
+• Running build in 1 package
+
+@repo/math:build: cache miss, executing [1.2s]
+
+Tasks:    1 successful, 1 total
+Time:     1.2s
+```
+
+### 일회성 명령어
+
+#### 드라이런 (Dry Run)
+
+실제로 실행하지 않고 무엇이 실행될지 확인합니다.
+
+```bash
+turbo build --dry
+```
+
+**출력:**
+
+```
+Tasks to Run
+@repo/math:build
+  Task            = build
+  Hash            = abc123def456
+  Cached (Local)  = false
+  Command         = tsc
+  Outputs         = dist/**
+  Dependencies    = @repo/typescript-config
+
+web:build
+  Task            = build
+  Hash            = xyz789ghi012
+  Cached (Local)  = false
+  Command         = next build
+  Outputs         = .next/**
+  Dependencies    = @repo/math, @repo/ui
+```
+
+#### 캐시 무시
+
+캐시를 무시하고 강제로 재실행합니다.
+
+```bash
+turbo build --force
+```
+
+**사용 사례:**
+
+- 캐시가 손상된 경우
+- 외부 요인으로 재빌드가 필요한 경우
+- 디버깅 목적
+
+#### 의존성 그래프 확인
+
+```bash
+turbo build --graph
+```
+
+브라우저에서 시각적인 의존성 그래프를 확인할 수 있습니다.
+
+#### 변경된 패키지만 빌드
+
+```bash
+turbo build --filter=[HEAD^1]
+```
+
+마지막 커밋 이후 변경된 패키지만 빌드합니다.
+
+### turbo.json 설정 오버라이드
+
+`turbo.json`의 설정을 명령줄에서 일시적으로 변경할 수 있습니다.
+
+**현재 프로젝트의 turbo.json:**
+
+```json
+{
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    }
+  }
+}
+```
+
+**오버라이드 예시:**
+
+```bash
+# 평소에는 전체 로그를 보지만, 지금은 에러만
+turbo build --output-logs=errors-only
+
+# 평소에는 캐시를 사용하지만, 지금은 강제로 재빌드
+turbo build --force
+
+# 병렬 실행 수 제한
+turbo build --concurrency=2
+
+# 특정 작업만 실행 (의존성 무시)
+turbo build --no-deps
+```
+
+**플래그 설명:**
+
+- `--output-logs=<mode>`: 로그 출력 방식
+  - `full`: 모든 로그 출력
+  - `errors-only`: 에러만 출력
+  - `none`: 로그 숨김
+  - `hash-only`: 해시만 출력
+
+- `--concurrency=<n>`: 동시 실행 태스크 수 제한
+  - 숫자: 최대 동시 실행 수
+  - `100%`: CPU 코어 수만큼
+
+- `--no-deps`: 의존성 무시하고 지정된 패키지만 실행
+
+## 여러 작업 동시 실행 (Running Multiple Tasks)
+
+Turborepo는 여러 태스크를 한 번에 실행하고, 가능한 한 빨리 실행할 수 있는 시점을 자동으로 감지합니다.
+
+### 기본 사용법
+
+```bash
+turbo run build test lint check-types
+```
+
+**중요:** 명령어에 나열된 순서는 중요하지 않습니다!
+
+```bash
+# 이 두 명령어는 동일하게 동작
+turbo test lint
+turbo lint test
+```
+
+Turborepo가 의존성 그래프를 분석하여 최적의 순서로 실행합니다.
+
+### 실행 예시
+
+**현재 프로젝트 구조:**
+
+```
+apps/
+├── web/          (@repo/math, @repo/ui에 의존)
+└── docs/
+
+packages/
+├── math/         (의존성 없음)
+├── ui/           (@repo/math에 의존)
+├── typescript-config/
+└── eslint-config/
+```
+
+**명령어:**
+
+```bash
+turbo build test lint
+```
+
+**실행 순서:**
+
+```
+1단계 (병렬):
+  @repo/math:build
+  @repo/typescript-config:build
+  @repo/eslint-config:build
+
+2단계 (병렬):
+  @repo/ui:build (math 완료 후)
+  @repo/math:test (build 완료 후)
+  @repo/math:lint (독립적)
+
+3단계 (병렬):
+  web:build (math, ui 완료 후)
+  @repo/ui:test (build 완료 후)
+  @repo/ui:lint (독립적)
+
+4단계 (병렬):
+  web:test (build 완료 후)
+  web:lint (독립적)
+```
+
+**실제 출력:**
+
+```bash
+$ turbo build test lint
+
+• Packages in scope: @repo/math, @repo/ui, web, docs
+• Running build, test, lint in 4 packages
+
+@repo/math:build: cache hit, replaying logs [0.1s]
+@repo/math:lint: cache hit, replaying logs [0.1s]
+@repo/ui:build: cache miss, executing [2.3s]
+@repo/math:test: cache miss, executing [1.5s]
+@repo/ui:lint: cache hit, replaying logs [0.1s]
+web:build: cache miss, executing [8.5s]
+@repo/ui:test: cache miss, executing [2.1s]
+web:lint: cache hit, replaying logs [0.1s]
+web:test: cache miss, executing [3.2s]
+
+Tasks:    9 successful, 9 total
+Cached:   4 cached, 9 total
+Time:     12.3s >>> FULL TURBO
+```
+
+### 작업 순서는 중요하지 않음
+
+```bash
+# 모두 동일한 결과
+turbo build test lint
+turbo lint build test
+turbo test lint build
+```
+
+Turborepo는 `turbo.json`의 `dependsOn` 설정을 기반으로 실행 순서를 결정합니다.
+
+## 필터 사용하기 (Using Filters)
+
+필터를 사용하면 Task Graph의 일부만 선택적으로 실행할 수 있습니다.
+
+### 패키지로 필터링
+
+#### 단일 패키지
+
+```bash
+turbo build --filter=@repo/math
+turbo build --filter=web
+turbo build --filter=@repo/ui
+```
+
+#### 여러 패키지
+
+```bash
+turbo build --filter=@repo/math --filter=web
+```
+
+#### 패키지의 특정 작업
+
+```bash
+# 직접 지정
+turbo run web#build
+turbo run web#build docs#lint
+
+# 여러 작업
+turbo run web#build web#test web#lint
+```
+
+**실행 결과:**
+
+```bash
+$ turbo run web#build
+
+• Packages in scope: web
+• Running build in 1 package
+
+@repo/math:build: cache hit (dependency)
+@repo/ui:build: cache hit (dependency)
+web:build: cache miss, executing [8.5s]
+
+Tasks:    3 successful, 3 total
+Cached:   2 cached, 3 total
+Time:     8.6s
+```
+
+의존성(`@repo/math`, `@repo/ui`)도 자동으로 빌드됩니다!
+
+### 디렉토리로 필터링
+
+디렉토리 구조를 활용하여 여러 패키지를 한 번에 필터링할 수 있습니다.
+
+```bash
+# packages 디렉토리의 모든 패키지
+turbo build --filter="./packages/*"
+
+# apps 디렉토리의 모든 앱
+turbo build --filter="./apps/*"
+
+# 특정 하위 디렉토리
+turbo lint --filter="./packages/utilities/*"
+```
+
+**실행 예시:**
+
+```bash
+$ turbo build --filter="./packages/*"
+
+• Packages in scope: @repo/math, @repo/ui, @repo/typescript-config, @repo/eslint-config
+• Running build in 4 packages
+
+@repo/typescript-config:build: no script
+@repo/eslint-config:build: no script
+@repo/math:build: cache hit [0.1s]
+@repo/ui:build: cache miss, executing [2.3s]
+
+Tasks:    2 successful, 2 total (2 skipped)
+Cached:   1 cached, 2 total
+Time:     2.4s
+```
+
+### 의존하는 패키지 포함 (Dependents)
+
+`...` 문법을 사용하여 의존성 관계를 포함할 수 있습니다.
+
+#### 의존하는 패키지 포함 (...)
+
+```bash
+turbo build --filter=...@repo/ui
+```
+
+**의미:** `@repo/ui`와 그것에 의존하는 모든 패키지를 빌드
+
+**실행 순서:**
+
+```
+1. @repo/math:build (ui가 의존)
+2. @repo/ui:build
+3. web:build (ui에 의존)
+```
+
+**시각화:**
+
+```
+@repo/math → @repo/ui → web
+    ↑           ↑         ↑
+    └───────────┴─────────┘
+    모두 빌드됨!
+```
+
+#### 의존성 포함 (...)
+
+```bash
+turbo build --filter=web...
+```
+
+**의미:** `web`과 `web`이 의존하는 모든 패키지를 빌드
+
+**실행 순서:**
+
+```
+1. @repo/math:build
+2. @repo/ui:build
+3. web:build
+```
+
+**시각화:**
+
+```
+@repo/math → @repo/ui → web
+    ↑           ↑         ↑
+    └───────────┴─────────┘
+    모두 빌드됨!
+```
+
+#### 양방향 포함 (^...패키지...^)
+
+```bash
+turbo build --filter=^...@repo/ui...^
+```
+
+**의미:** `@repo/ui`와 그것의 모든 의존성, 그리고 그것에 의존하는 모든 패키지
+
+**실행 순서:**
+
+```
+1. @repo/math:build (ui의 의존성)
+2. @repo/ui:build
+3. web:build (ui에 의존)
+4. docs:build (ui에 의존)
+```
+
+### 소스 제어 변경사항으로 필터링
+
+Git 변경사항을 기반으로 필터링할 수 있습니다.
+
+#### 이전 커밋과 비교
+
+```bash
+turbo build --filter=[HEAD^1]
+```
+
+**의미:** 마지막 커밋에서 변경된 패키지만 빌드
+
+**시나리오:**
+
+```bash
+# math 패키지의 add.ts 수정
+$ git add packages/math/src/add.ts
+$ git commit -m "Update add function"
+
+# 변경된 패키지만 빌드
+$ turbo build --filter=[HEAD^1]
+
+@repo/math:build: cache miss, executing [1.2s]
+web:build: cache miss, executing [8.5s]  # math에 의존하므로 재빌드
+
+Tasks:    2 successful, 2 total
+Time:     9.7s
+```
+
+#### 브랜치 비교
+
+```bash
+# main 브랜치와 비교
+turbo build --filter=[main...HEAD]
+
+# 특정 브랜치와 비교
+turbo build --filter=[main...feature/new-ui]
+
+# origin과 비교
+turbo build --filter=[origin/main...HEAD]
+```
+
+**CI/CD에서 유용:**
+
+```bash
+# PR에서 변경된 패키지만 테스트
+turbo test --filter=[origin/main...HEAD]
+
+# 변경된 패키지만 린트
+turbo lint --filter=[main...feature/my-feature]
+```
+
+#### 특정 커밋 SHA로 비교
+
+```bash
+turbo build --filter=[a1b2c3d...e4f5g6h]
+```
+
+#### 실전 예시
+
+```bash
+# 마지막 커밋에서 변경된 패키지만 테스트
+turbo test --filter=[HEAD^1]
+
+# main 브랜치 이후 변경된 패키지만 빌드
+turbo build --filter=[origin/main...HEAD]
+
+# feature 브랜치에서 변경된 것만 린트
+turbo lint --filter=[main...feature/new-ui]
+
+# 최근 3개 커밋에서 변경된 것만
+turbo build --filter=[HEAD~3...HEAD]
+```
+
+### 필터 결합
+
+여러 필터를 결합하여 더욱 세밀하게 조정할 수 있습니다.
+
+```bash
+turbo build --filter=...@repo/ui --filter={./packages/*} --filter=[HEAD^1]
+```
+
+**의미:**
+
+1. `...@repo/ui`: ui와 그것에 의존하는 패키지
+2. `{./packages/*}`: packages 디렉토리의 패키지만
+3. `[HEAD^1]`: 마지막 커밋에서 변경된 것만
+
+**결과:** 위 세 조건을 모두 만족하는 패키지만 실행
+
+#### 실전 예시
+
+```bash
+# packages 디렉토리에서 변경된 것만 빌드
+turbo build --filter={./packages/*} --filter=[HEAD^1]
+
+# ui에 의존하면서 변경된 것만 테스트
+turbo test --filter=...@repo/ui --filter=[HEAD^1]
+
+# apps 디렉토리에서 main 이후 변경된 것만 린트
+turbo lint --filter={./apps/*} --filter=[main...HEAD]
+```
+
+## 실전 시나리오
+
+### 시나리오 1: 로컬 개발
+
+```bash
+# 전체 빌드
+pnpm run build
+
+# 특정 앱만 개발 서버 시작
+cd apps/web
+turbo dev
+
+# 또는
+turbo dev --filter=web
+```
+
+### 시나리오 2: PR 검증
+
+```bash
+# PR에서 변경된 패키지만 검증
+turbo build test lint --filter=[origin/main...HEAD]
+
+# 변경된 패키지와 그것에 의존하는 패키지 테스트
+turbo test --filter=...[origin/main...HEAD]
+```
+
+### 시나리오 3: 특정 패키지 디버깅
+
+```bash
+# 캐시 무시하고 강제 재빌드
+turbo build --filter=@repo/math --force
+
+# 전체 로그 출력
+turbo build --filter=@repo/math --output-logs=full
+
+# 드라이런으로 확인
+turbo build --filter=@repo/math --dry
+```
+
+### 시나리오 4: CI/CD 최적화
+
+```bash
+# 변경된 패키지만 빌드 및 테스트
+turbo build test --filter=[HEAD^1]
+
+# 특정 앱 배포 전 검증
+turbo build test lint --filter=web...
+
+# 병렬 실행 수 제한 (리소스 제약)
+turbo build --concurrency=2
+```
+
+### 시나리오 5: 모노레포 마이그레이션
+
+```bash
+# 특정 디렉토리만 점진적으로 마이그레이션
+turbo build --filter={./packages/migrated/*}
+
+# 나머지는 기존 방식으로
+pnpm --filter "./packages/legacy/*" run build
+```
+
+## 필터 문법 정리
+
+### 기본 필터
+
+```bash
+--filter=<package>              # 특정 패키지
+--filter={<glob>}               # 디렉토리 glob
+--filter=[<git-range>]          # Git 변경사항
+```
+
+### 의존성 필터
+
+```bash
+--filter=<package>...           # 패키지 + 의존성
+--filter=...<package>           # 패키지 + 의존하는 것들
+--filter=^<package>             # 패키지의 의존성만
+--filter=<package>^             # 패키지에 의존하는 것들만
+```
+
+### 조합 예시
+
+```bash
+# web과 그 의존성
+--filter=web...
+
+# ui에 의존하는 모든 것
+--filter=...ui
+
+# math의 의존성만 (math 제외)
+--filter=^@repo/math
+
+# ui에 의존하는 것들만 (ui 제외)
+--filter=@repo/ui^
+
+# packages 디렉토리에서 변경된 것
+--filter={./packages/*} --filter=[HEAD^1]
+
+# ui와 관련된 모든 것 (의존성 + 의존하는 것)
+--filter=...@repo/ui...
+```
+
+## 유용한 플래그 모음
+
+### 실행 제어
+
+```bash
+--force                         # 캐시 무시
+--no-cache                      # 캐시 사용 안함
+--no-deps                       # 의존성 무시
+--concurrency=<n>               # 동시 실행 수 제한
+--parallel                      # 최대 병렬 실행
+--continue                      # 에러 발생해도 계속 실행
+```
+
+### 출력 제어
+
+```bash
+--output-logs=<mode>            # 로그 출력 방식
+  full                          # 모든 로그
+  errors-only                   # 에러만
+  none                          # 로그 숨김
+  hash-only                     # 해시만
+
+--log-order=<mode>              # 로그 순서
+  auto                          # 자동
+  stream                        # 실시간 스트림
+  grouped                       # 태스크별 그룹화
+```
+
+### 디버깅
+
+```bash
+--dry                           # 드라이런 (실행 안함)
+--graph                         # 의존성 그래프 시각화
+--summarize                     # 실행 요약
+--verbosity=<level>             # 상세도 (0-2)
+```
+
+### 캐싱
+
+```bash
+--force                         # 캐시 무시
+--no-cache                      # 캐시 비활성화
+--remote-only                   # 원격 캐시만 사용
+--cache-dir=<path>              # 캐시 디렉토리 지정
+```
+
+## 실전 팁
+
+### 1. 개발 중 빠른 피드백
+
+```bash
+# 현재 작업 중인 패키지만
+cd packages/math
+turbo build test
+
+# 변경사항만 빠르게 확인
+turbo lint --filter=[HEAD^1] --output-logs=errors-only
+```
+
+### 2. CI/CD 최적화
+
+```bash
+# PR 검증 스크립트
+#!/bin/bash
+# 변경된 패키지만 빌드 및 테스트
+turbo build test lint --filter=[origin/main...HEAD]
+
+# 실패해도 계속 진행 (모든 에러 수집)
+turbo test --filter=[origin/main...HEAD] --continue
+```
+
+### 3. 선택적 배포
+
+```bash
+# web 앱만 배포 준비
+turbo build --filter=web...
+
+# 변경된 앱만 배포
+turbo build --filter={./apps/*} --filter=[HEAD^1]
+```
+
+### 4. 디버깅
+
+```bash
+# 무엇이 실행될지 확인
+turbo build --dry --filter=web
+
+# 의존성 그래프 확인
+turbo build --graph
+
+# 상세 로그
+turbo build --verbosity=2 --output-logs=full
+```
+
+### 5. 성능 최적화
+
+```bash
+# 병렬 실행 수 조정 (CPU 코어 수에 맞춤)
+turbo build --concurrency=4
+
+# 원격 캐시만 사용 (로컬 디스크 절약)
+turbo build --remote-only
+
+# 특정 태스크만 실행 (의존성 스킵)
+turbo test --filter=web --no-deps
+```
+
+## 일반적인 실수와 해결책
+
+### 실수 1: 필터 문법 오류
+
+```bash
+# ❌ 잘못된 문법
+turbo build --filter @repo/math        # = 없음
+turbo build --filter=./packages/*      # {} 없음
+
+# ✅ 올바른 문법
+turbo build --filter=@repo/math
+turbo build --filter={./packages/*}
+```
+
+### 실수 2: 의존성 무시
+
+```bash
+# ❌ 의존성 빌드 안됨
+turbo build --filter=web --no-deps
+
+# ✅ 의존성 포함
+turbo build --filter=web...
+```
+
+### 실수 3: Git 범위 오류
+
+```bash
+# ❌ 잘못된 범위
+turbo build --filter=HEAD^1            # [] 없음
+turbo build --filter=[HEAD...main]     # 순서 반대
+
+# ✅ 올바른 범위
+turbo build --filter=[HEAD^1]
+turbo build --filter=[main...HEAD]
+```
+
+### 실수 4: 캐시 문제
+
+```bash
+# 캐시가 이상할 때
+turbo build --force                    # 캐시 무시
+
+# 캐시 디렉토리 정리
+rm -rf .turbo/cache
+turbo build
+```
+
+## 정리
+
+Turborepo 태스크 실행의 핵심:
+
+1. **기본 실행**
+   - `turbo run <task>`: 모든 패키지에서 실행
+   - 병렬 처리 자동화
+   - 의존성 순서 자동 보장
+
+2. **필터링**
+   - 패키지: `--filter=<package>`
+   - 디렉토리: `--filter={<glob>}`
+   - Git 변경: `--filter=[<range>]`
+   - 의존성: `...`, `^` 문법
+
+3. **커스터마이징**
+   - `--force`: 캐시 무시
+   - `--dry`: 드라이런
+   - `--concurrency`: 병렬 제어
+   - `--output-logs`: 로그 제어
+
+4. **실전 활용**
+   - 로컬 개발: 자동 스코핑 활용
+   - CI/CD: Git 필터로 최적화
+   - 디버깅: `--dry`, `--graph` 활용
+   - 성능: `--concurrency` 조정
+
+5. **필터 조합**
+   - 여러 필터를 결합하여 정밀한 제어
+   - AND 조건으로 동작
+   - 복잡한 시나리오에 유용
+
+Turborepo의 강력한 필터링과 병렬 처리 기능을 활용하면 모노레포에서도 빠르고 효율적인 개발이 가능합니다.
+
+다음 글에서는 Turborepo의 캐싱 메커니즘과 원격 캐싱 설정에 대해 자세히 알아보겠습니다.
