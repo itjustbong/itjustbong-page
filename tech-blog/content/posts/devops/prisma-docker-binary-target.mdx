@@ -1,0 +1,423 @@
+---
+title: "[Docker] Prisma와 Docker: 바이너리 타겟의 이해"
+description: "Docker에서 Prisma 사용 시 발생하는 바이너리 타겟 문제와 해결 방법"
+category: "devops"
+tags: ["docker", "prisma", "binary", "alpine", "troubleshooting"]
+createdAt: "2026-01-23"
+updatedAt: "2026-01-23"
+published: true
+---
+
+# Prisma와 Docker: 바이너리 타겟의 이해
+
+Docker 환경에서 Prisma를 사용하다 보면 이런 에러를 만날 수 있습니다:
+
+```
+Error: Query engine binary for current platform "linux-musl-openssl-3.0.x" 
+could not be found.
+```
+
+이 에러가 왜 발생하는지, 그리고 어떻게 해결하는지 알아보겠습니다.
+
+---
+
+## 바이너리(Binary)란?
+
+### 기본 개념
+
+바이너리는 **CPU가 직접 실행할 수 있는 기계어로 된 파일**입니다.
+
+```mermaid
+flowchart LR
+    subgraph Source["소스 코드"]
+        SC["print('Hello')"]
+    end
+
+    subgraph Binary["바이너리"]
+        BN["01001000 01100101<br/>01101100 01101100..."]
+    end
+
+    subgraph CPU["CPU"]
+        EXEC["실행!"]
+    end
+
+    Source -->|컴파일| Binary -->|로드| CPU
+
+    style Source fill:#E8F8E8
+    style Binary fill:#FFE4E1
+    style CPU fill:#E0FFFF
+```
+
+### JavaScript는 인터프리터 언어 아닌가요?
+
+맞습니다! JavaScript 자체는 바이너리가 아닙니다. 하지만 Prisma는 **성능이 중요한 부분을 Rust로 작성**했고, 이 Rust 코드가 바이너리로 컴파일됩니다.
+
+```mermaid
+flowchart TB
+    subgraph Prisma["Prisma 구성"]
+        JS["JavaScript/TypeScript<br/>Prisma Client API"]
+        QE["Query Engine<br/>(Rust 바이너리)"]
+    end
+
+    subgraph 왜바이너리["왜 Rust 바이너리?"]
+        P1["✅ 성능: 네이티브 수준"]
+        P2["✅ 메모리: 효율적 관리"]
+        P3["✅ SQL 파싱, 변환 최적화"]
+    end
+
+    JS -->|호출| QE
+    QE --> 왜바이너리
+
+    style QE fill:#FFE4E1
+    style JS fill:#E8F8E8
+```
+
+---
+
+## OS마다 바이너리가 다른 이유
+
+### 핵심 질문
+
+> **Q: 왜 macOS에서 빌드한 바이너리가 Linux에서 안 돌아가나요?**
+
+### 세 가지 이유
+
+```mermaid
+flowchart TB
+    subgraph 이유["OS별 바이너리가 다른 이유"]
+        R1["1️⃣ 시스템 콜 차이"]
+        R2["2️⃣ 실행 파일 포맷 차이"]
+        R3["3️⃣ C 라이브러리 차이"]
+    end
+
+    R1 --> S1["파일 읽기, 네트워크 등<br/>OS API가 다름"]
+    R2 --> S2["Windows: PE<br/>Linux: ELF<br/>macOS: Mach-O"]
+    R3 --> S3["glibc vs musl<br/>(Linux 내에서도 다름!)"]
+
+    style 이유 fill:#FFF8DC
+```
+
+#### 1. 시스템 콜 (System Call) 차이
+
+프로그램이 OS 기능(파일 읽기, 네트워크 등)을 사용할 때 호출하는 방식이 OS마다 다릅니다.
+
+```
+# 파일 열기 시스템 콜
+Linux:   open()    → 시스템 콜 번호 2
+macOS:   open()    → 시스템 콜 번호 5
+Windows: CreateFile() → 완전히 다른 API
+```
+
+#### 2. 실행 파일 포맷 차이
+
+각 OS는 실행 파일의 구조가 다릅니다.
+
+| OS | 실행 파일 포맷 | 확장자 |
+|-----|--------------|--------|
+| Windows | PE (Portable Executable) | .exe |
+| Linux | ELF (Executable and Linkable Format) | 없음 |
+| macOS | Mach-O | 없음 |
+
+#### 3. C 라이브러리 차이
+
+프로그램이 사용하는 기본 C 함수들(`printf`, `malloc` 등)의 구현체가 다릅니다.
+
+```mermaid
+flowchart LR
+    subgraph Linux["Linux"]
+        GLIBC["glibc<br/>(대부분의 배포판)"]
+        MUSL["musl<br/>(Alpine Linux)"]
+    end
+
+    subgraph 특징
+        GLIBC --> G1["✅ 기능 풍부<br/>❌ 용량 큼"]
+        MUSL --> M1["✅ 경량<br/>❌ glibc와 호환 안됨"]
+    end
+
+    style GLIBC fill:#E8F8E8
+    style MUSL fill:#FFE4E1
+```
+
+---
+
+## Alpine Linux와 musl
+
+### Alpine Linux란?
+
+Alpine Linux는 **초경량 Linux 배포판**입니다. Docker에서 이미지 크기를 줄이기 위해 자주 사용됩니다.
+
+```bash
+# 일반 Node.js 이미지
+FROM node:20          # ~1GB
+
+# Alpine 기반 이미지
+FROM node:20-alpine   # ~150MB
+```
+
+### 왜 문제가 되나요?
+
+Alpine Linux는 **glibc 대신 musl을 사용**합니다. 따라서:
+
+- glibc용으로 빌드된 바이너리 → Alpine에서 ❌ 실행 안됨
+- musl용으로 빌드된 바이너리 → Alpine에서 ✅ 실행됨
+
+```mermaid
+flowchart TB
+    subgraph 개발환경["💻 개발 환경 (macOS/Windows)"]
+        DEV["Prisma 설치<br/>→ darwin/windows 바이너리"]
+    end
+
+    subgraph Docker["🐳 Docker (Alpine)"]
+        ALP["Alpine Linux<br/>musl 사용"]
+        ERR["❌ 바이너리 호환 안됨!"]
+    end
+
+    DEV -->|docker build| Docker
+    ALP --> ERR
+
+    style DEV fill:#E8F8E8
+    style ERR fill:#FFB6C1
+```
+
+---
+
+## 에러 메시지 이해하기
+
+```
+Error: Query engine binary for current platform "linux-musl-openssl-3.0.x" 
+could not be found.
+```
+
+이 에러 메시지를 분석해보면:
+
+| 부분 | 의미 |
+|------|------|
+| `linux` | Linux OS |
+| `musl` | Alpine Linux (musl 사용) |
+| `openssl-3.0.x` | OpenSSL 3.0.x 버전 |
+
+즉, **"Alpine Linux + OpenSSL 3.0용 Query Engine 바이너리가 없다"**는 의미입니다.
+
+---
+
+## 해결 방법
+
+### 1. binaryTargets 설정
+
+`prisma/schema.prisma` 파일에서 필요한 바이너리 타겟을 명시합니다.
+
+```prisma
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+```
+
+```mermaid
+flowchart LR
+    subgraph Targets["binaryTargets"]
+        T1["native<br/>개발 환경용"]
+        T2["linux-musl-openssl-3.0.x<br/>Docker Alpine용"]
+    end
+
+    T1 --> D1["macOS/Windows에서<br/>로컬 개발 시 사용"]
+    T2 --> D2["Docker Alpine 컨테이너에서<br/>사용"]
+
+    style T1 fill:#E8F8E8
+    style T2 fill:#E0FFFF
+```
+
+### 2. 주요 바이너리 타겟 목록
+
+| 타겟 | 환경 |
+|------|------|
+| `native` | 현재 개발 환경 (자동 감지) |
+| `linux-musl-openssl-3.0.x` | Alpine Linux + OpenSSL 3.0 |
+| `linux-musl` | Alpine Linux (구버전) |
+| `debian-openssl-3.0.x` | Debian/Ubuntu + OpenSSL 3.0 |
+| `debian-openssl-1.1.x` | Debian/Ubuntu + OpenSSL 1.1 |
+| `rhel-openssl-3.0.x` | RHEL/CentOS + OpenSSL 3.0 |
+
+### 3. 환경별 타겟 선택
+
+```mermaid
+flowchart TB
+    Q1{"Docker 베이스 이미지?"}
+    Q1 -->|node:20-alpine| A1["linux-musl-openssl-3.0.x"]
+    Q1 -->|node:20| A2["debian-openssl-3.0.x"]
+    Q1 -->|node:20-slim| A3["debian-openssl-3.0.x"]
+
+    style A1 fill:#E0FFFF
+    style A2 fill:#E8F8E8
+    style A3 fill:#E8F8E8
+```
+
+---
+
+## 실전 예제
+
+### schema.prisma
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+model User {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  name  String?
+}
+```
+
+### Dockerfile
+
+```dockerfile
+# Stage 1: Builder
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Prisma CLI와 Client 생성을 위한 의존성
+COPY package*.json ./
+COPY prisma ./prisma
+
+RUN npm install
+
+# Prisma Client 생성 (중요!)
+RUN npx prisma generate
+
+COPY . .
+RUN npm run build
+
+# Stage 2: Runner
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+
+CMD ["node", "dist/main.js"]
+```
+
+> ⚠️ **중요**: `prisma generate`는 Builder 스테이지에서 실행해야 합니다. 이 명령어가 현재 환경에 맞는 바이너리를 생성합니다.
+
+---
+
+## 트러블슈팅
+
+### 에러 1: 바이너리를 찾을 수 없음
+
+```
+Error: Query engine binary for current platform "linux-musl-openssl-3.0.x" 
+could not be found.
+```
+
+**해결**: `schema.prisma`에 해당 타겟 추가
+
+```prisma
+binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+```
+
+### 에러 2: prisma generate 안 함
+
+```
+Error: @prisma/client did not initialize yet. 
+Please run "prisma generate" and try to import it again.
+```
+
+**해결**: Dockerfile에서 `prisma generate` 실행
+
+```dockerfile
+RUN npx prisma generate
+```
+
+### 에러 3: OpenSSL 버전 불일치
+
+```
+Error: libssl.so.1.1: cannot open shared object file
+```
+
+**해결**: 올바른 OpenSSL 버전의 타겟 사용
+
+```prisma
+# OpenSSL 1.1인 경우
+binaryTargets = ["native", "linux-musl"]
+
+# OpenSSL 3.0인 경우
+binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+```
+
+### 현재 환경 확인하기
+
+어떤 바이너리 타겟이 필요한지 확인하려면:
+
+```bash
+# 컨테이너 내에서 실행
+npx prisma -v
+```
+
+출력 예시:
+```
+prisma                  : 5.x.x
+@prisma/client          : 5.x.x
+Computed binaryTarget   : linux-musl-openssl-3.0.x  # 👈 이게 필요한 타겟
+```
+
+---
+
+## 정리: 해결 체크리스트
+
+```mermaid
+flowchart TB
+    Q1["1. schema.prisma에<br/>binaryTargets 설정했나요?"]
+    Q1 -->|No| A1["binaryTargets 추가"]
+    Q1 -->|Yes| Q2
+
+    Q2["2. Docker 베이스 이미지와<br/>타겟이 일치하나요?"]
+    Q2 -->|No| A2["알맞은 타겟으로 변경"]
+    Q2 -->|Yes| Q3
+
+    Q3["3. prisma generate를<br/>Dockerfile에서 실행하나요?"]
+    Q3 -->|No| A3["RUN npx prisma generate 추가"]
+    Q3 -->|Yes| OK["✅ 문제 해결!"]
+
+    style OK fill:#90EE90
+```
+
+### Quick Fix
+
+```prisma
+// prisma/schema.prisma
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+```
+
+```dockerfile
+# Dockerfile
+RUN npx prisma generate
+```
+
+---
+
+## 마치며
+
+Prisma와 Docker를 함께 사용할 때 발생하는 바이너리 타겟 문제는:
+
+1. **원인**: OS, C 라이브러리(glibc/musl), OpenSSL 버전에 따라 다른 바이너리가 필요
+2. **해결**: `binaryTargets`에 Docker 환경에 맞는 타겟 명시
+3. **주의**: `prisma generate`를 Docker 빌드 시 실행
+
+Alpine 이미지를 사용한다면 `linux-musl-openssl-3.0.x`를, 일반 Debian 기반 이미지를 사용한다면 `debian-openssl-3.0.x`를 사용하면 됩니다.
+
+다음 글에서는 백엔드 아키텍처의 기본 패턴인 DTO, DAO, Entity에 대해 다뤄보겠습니다!

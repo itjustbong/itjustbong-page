@@ -1,0 +1,449 @@
+---
+title: "[Docker] 컨테이너 배포 전략: EC2 단일 서버 vs Kubernetes"
+description: "소규모 프로젝트의 적정 인프라 선택과 비용 효율적인 배포 아키텍처 가이드"
+category: "devops"
+tags: ["docker", "kubernetes", "ec2", "deployment", "infrastructure"]
+createdAt: "2026-01-23"
+updatedAt: "2026-01-23"
+published: true
+---
+
+# 컨테이너 배포 전략: EC2 단일 서버 vs Kubernetes
+
+사이드 프로젝트나 스타트업 초기 단계에서 가장 많이 하는 고민 중 하나가 바로 **"어디에 어떻게 배포하지?"**입니다. Kubernetes가 대세라고 하는데, 과연 내 프로젝트에도 필요할까요? 이 글에서는 상황에 맞는 적정 인프라 선택 방법을 알아보겠습니다.
+
+---
+
+## 배포 옵션 비교
+
+```mermaid
+flowchart LR
+    subgraph Simple["🎯 단순한 배포"]
+        A[EC2 + Docker Compose]
+    end
+
+    subgraph Medium["⚖️ 중간 규모"]
+        B[ECS / Cloud Run]
+    end
+
+    subgraph Complex["🚀 대규모 / 복잡한 배포"]
+        C[Kubernetes]
+    end
+
+    Simple -->|"성장"| Medium -->|"더 성장"| Complex
+
+    style Simple fill:#E8F8E8
+    style Medium fill:#FFF8DC
+    style Complex fill:#FFE4E1
+```
+
+| 방식 | 적합한 상황 | 월 비용 (예상) | 복잡도 |
+|------|------------|---------------|--------|
+| **EC2 + Docker Compose** | 사이드 프로젝트, MVP | $5~50 | ⭐ |
+| **ECS / Cloud Run** | 중소규모 서비스 | $50~200 | ⭐⭐ |
+| **Kubernetes** | 대규모, MSA | $200+ | ⭐⭐⭐⭐ |
+
+---
+
+## 언제 Kubernetes가 필요한가?
+
+### Kubernetes가 필요한 경우
+
+```mermaid
+flowchart TB
+    subgraph Need["✅ K8s가 필요한 경우"]
+        N1["마이크로서비스 10개 이상"]
+        N2["여러 팀이 독립적으로 배포"]
+        N3["초당 수천~수만 요청"]
+        N4["복잡한 스케일링 정책"]
+        N5["멀티 리전 배포"]
+    end
+
+    style Need fill:#FFE4E1
+```
+
+### Kubernetes가 오버스펙인 경우
+
+```mermaid
+flowchart TB
+    subgraph NoNeed["❌ K8s가 오버스펙인 경우"]
+        O1["서비스 1~3개"]
+        O2["팀원 1~5명"]
+        O3["일일 사용자 수천 명 이하"]
+        O4["빠른 MVP 검증 단계"]
+        O5["인프라 전담 인력 없음"]
+    end
+
+    style NoNeed fill:#E8F8E8
+```
+
+### 판단 기준 체크리스트
+
+```
+□ 서비스(마이크로서비스)가 5개 이상인가?
+□ 여러 팀이 독립적으로 배포해야 하는가?
+□ 오토스케일링이 필수적인가?
+□ 99.99% 이상의 가용성이 필요한가?
+□ 인프라 전담 인력이 있는가?
+
+→ 3개 이상 Yes라면 Kubernetes 고려
+→ 2개 이하라면 단순한 방식 추천
+```
+
+---
+
+## EC2 단일 서버 배포
+
+### 왜 단일 서버인가?
+
+대부분의 사이드 프로젝트와 초기 스타트업은 **단일 EC2 인스턴스**로 충분합니다.
+
+```mermaid
+flowchart TB
+    subgraph EC2["☁️ EC2 인스턴스 (t3.small)"]
+        subgraph Docker["Docker"]
+            BE[Backend<br/>Node.js]
+            RD[Redis]
+        end
+    end
+
+    subgraph External["외부 서비스"]
+        DB[(관리형 DB<br/>NeonDB / RDS)]
+        S3[(S3<br/>파일 저장)]
+    end
+
+    User["👤 사용자"] --> BE
+    BE <--> RD
+    BE <--> DB
+    BE <--> S3
+
+    style EC2 fill:#E8F4FD
+    style External fill:#FFF8DC
+```
+
+### 장점
+
+| 장점 | 설명 |
+|------|------|
+| **비용 효율** | t3.small 기준 월 $15~20 |
+| **단순함** | 학습 곡선 낮음, 빠른 배포 |
+| **디버깅 용이** | SSH로 직접 접속하여 확인 |
+| **충분한 성능** | 일일 수천~수만 요청 처리 가능 |
+
+### 단점
+
+| 단점 | 해결 방법 |
+|------|----------|
+| 단일 장애점 (SPOF) | 중요한 서비스는 2대 운영 |
+| 수동 스케일링 | 성장하면 ECS/K8s로 이전 |
+| 배포 시 다운타임 | Blue-Green 배포 적용 |
+
+---
+
+## 권장 아키텍처: BE + Redis + 외부 DB
+
+### 구성 요소
+
+```mermaid
+flowchart TB
+    subgraph EC2["☁️ EC2 (Docker Compose)"]
+        BE["🔧 Backend (NestJS)<br/>포트: 3000"]
+        RD["📦 Redis<br/>포트: 6379<br/>세션, 캐시"]
+    end
+
+    subgraph Managed["🌐 관리형 서비스"]
+        DB[("🐘 PostgreSQL<br/>NeonDB / Supabase")]
+        CDN["🌍 CloudFront<br/>정적 파일"]
+    end
+
+    Client["👤 클라이언트"] --> CDN
+    CDN --> BE
+    BE <--> RD
+    BE <--> DB
+
+    style EC2 fill:#E8F4FD
+    style Managed fill:#E8F8E8
+```
+
+### 왜 이 구성인가?
+
+| 컴포넌트 | 위치 | 이유 |
+|---------|------|------|
+| **Backend** | EC2 | 핵심 로직, 직접 제어 필요 |
+| **Redis** | EC2 | 낮은 지연 필요, 데이터 소실 허용 |
+| **PostgreSQL** | 외부 (NeonDB) | 백업, 복구, 스케일링 자동화 |
+
+### DB를 외부 서비스로 분리하는 이유
+
+```mermaid
+flowchart LR
+    subgraph SelfManaged["직접 관리 (EC2 내 DB)"]
+        S1["❌ 백업 직접 설정"]
+        S2["❌ 장애 시 복구 직접"]
+        S3["❌ 보안 패치 직접"]
+        S4["❌ 스케일링 직접"]
+    end
+
+    subgraph Managed["관리형 서비스 (NeonDB 등)"]
+        M1["✅ 자동 백업"]
+        M2["✅ 자동 복구"]
+        M3["✅ 보안 패치 자동"]
+        M4["✅ 원클릭 스케일링"]
+    end
+
+    style SelfManaged fill:#FFE4E1
+    style Managed fill:#E8F8E8
+```
+
+---
+
+## 관리형 DB 서비스 비교
+
+### PostgreSQL 옵션
+
+| 서비스 | 무료 티어 | 유료 시작 | 특징 |
+|--------|----------|----------|------|
+| **NeonDB** | 0.5GB | $19/월 | 서버리스, 빠른 시작 |
+| **Supabase** | 500MB | $25/월 | Firebase 대체, 인증 포함 |
+| **PlanetScale** | 5GB | $29/월 | MySQL, 브랜칭 기능 |
+| **AWS RDS** | 12개월 무료 | $15/월~ | 안정적, 설정 복잡 |
+
+### 추천
+
+```mermaid
+flowchart LR
+    subgraph 추천
+        MVP["🚀 MVP / 사이드<br/>→ NeonDB 무료"]
+        Startup["💼 스타트업 초기<br/>→ Supabase"]
+        Growth["📈 성장 단계<br/>→ RDS / Cloud SQL"]
+    end
+```
+
+---
+
+## Docker Compose 설정 예시
+
+### docker-compose.yml
+
+```yaml
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}      # 외부 DB 연결
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - app-network
+    # 포트 노출 안함 - 내부 통신만
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+```
+
+### 핵심 포인트
+
+1. **Redis는 외부에 노출하지 않음** - 내부 통신만 사용
+2. **DB는 환경변수로 외부 서비스 연결** - 관리형 DB 사용
+3. **restart: unless-stopped** - 서버 재시작 시 자동 실행
+
+---
+
+## 비용 비교
+
+### 월 예상 비용
+
+```mermaid
+pie title 월 인프라 비용 (단일 EC2 기준)
+    "EC2 t3.small" : 15
+    "NeonDB (유료)" : 19
+    "도메인" : 1
+    "기타" : 5
+```
+
+| 구성 | EC2 + Docker | ECS Fargate | EKS (K8s) |
+|------|-------------|-------------|-----------|
+| **컴퓨팅** | $15 (t3.small) | $30~50 | $73+ (클러스터) |
+| **DB (관리형)** | $0~19 | $0~19 | $0~19 |
+| **로드밸런서** | 불필요 | $16 | $16 |
+| **총 비용** | **$15~35** | **$50~85** | **$100+** |
+
+> 💡 **결론**: MVP 단계에서는 EC2 단일 서버가 가장 비용 효율적입니다.
+
+---
+
+## 배포 시나리오별 가이드
+
+### 시나리오 1: 사이드 프로젝트 / MVP
+
+```
+👤 사용자: 일일 100~1,000명
+💰 예산: 최소화
+👨‍💻 인력: 1~2명
+
+→ EC2 t3.micro/small + Docker Compose + NeonDB 무료
+→ 월 $10~20
+```
+
+### 시나리오 2: 초기 스타트업
+
+```
+👤 사용자: 일일 1,000~10,000명
+💰 예산: 월 $50~100
+👨‍💻 인력: 3~5명
+
+→ EC2 t3.medium + Docker Compose + NeonDB/Supabase 유료
+→ 필요시 EC2 추가 (로드밸런서 도입)
+→ 월 $50~100
+```
+
+### 시나리오 3: 성장 단계
+
+```
+👤 사용자: 일일 10,000~100,000명
+💰 예산: 월 $200+
+👨‍💻 인력: 5~15명, DevOps 전담
+
+→ ECS/EKS 또는 Kubernetes
+→ RDS Multi-AZ
+→ 오토스케일링 설정
+```
+
+---
+
+## 마이그레이션 경로
+
+나중에 규모가 커지면 어떻게 해야 할까요?
+
+```mermaid
+flowchart LR
+    subgraph Phase1["Phase 1: MVP"]
+        A[EC2 + Docker Compose]
+    end
+
+    subgraph Phase2["Phase 2: 성장"]
+        B[EC2 2대 + ALB]
+    end
+
+    subgraph Phase3["Phase 3: 확장"]
+        C[ECS / EKS]
+    end
+
+    Phase1 -->|"사용자 증가"| Phase2 -->|"복잡도 증가"| Phase3
+
+    style Phase1 fill:#E8F8E8
+    style Phase2 fill:#FFF8DC
+    style Phase3 fill:#E0FFFF
+```
+
+### Phase 1 → Phase 2
+
+```bash
+# 기존 서버 복제
+# ALB(Application Load Balancer) 추가
+# Health Check 설정
+```
+
+### Phase 2 → Phase 3
+
+```bash
+# Docker Compose → ECS Task Definition 변환
+# 또는 Kubernetes manifest 작성
+# CI/CD 파이프라인 구축
+```
+
+> 💡 **핵심**: 처음부터 완벽한 인프라를 구축하려 하지 마세요. 성장하면서 점진적으로 개선하면 됩니다.
+
+---
+
+## EC2 배포 체크리스트
+
+### 초기 설정
+
+```
+□ EC2 인스턴스 생성 (Amazon Linux 2023 / Ubuntu)
+□ 보안 그룹 설정 (22, 80, 443 포트)
+□ Elastic IP 할당 (고정 IP)
+□ Docker & Docker Compose 설치
+□ 도메인 연결 (Route 53 / Cloudflare)
+```
+
+### 보안 설정
+
+```
+□ SSH 키 기반 인증 (비밀번호 비활성화)
+□ fail2ban 설치 (브루트포스 방지)
+□ UFW/iptables 방화벽 설정
+□ 정기적인 보안 업데이트
+□ 환경변수로 민감 정보 관리 (.env)
+```
+
+### 운영 설정
+
+```
+□ systemd로 Docker 자동 시작
+□ CloudWatch 또는 로깅 서비스 연동
+□ 간단한 헬스체크 스크립트
+□ 정기 백업 (Redis 데이터)
+```
+
+---
+
+## 자주 하는 실수
+
+### 1. 처음부터 Kubernetes 도입
+
+```
+❌ "요즘 다 쿠버네티스 쓰니까..."
+✅ "우리 규모에 맞는 인프라부터 시작하자"
+```
+
+### 2. DB를 EC2 내부에서 운영
+
+```
+❌ EC2 내 PostgreSQL 직접 설치
+✅ NeonDB/Supabase 같은 관리형 서비스 사용
+```
+
+### 3. 모든 것을 직접 구축
+
+```
+❌ 인증, 파일 저장, 이메일 모두 직접 구현
+✅ 관리형 서비스 활용 (Supabase Auth, S3, SES)
+```
+
+---
+
+## 마치며
+
+인프라 선택의 핵심 원칙:
+
+1. **YAGNI (You Aren't Gonna Need It)**: 지금 필요한 것만 구축
+2. **점진적 개선**: MVP → 성장 → 확장 단계별로 인프라 업그레이드
+3. **관리형 서비스 활용**: 핵심 비즈니스에 집중, 인프라는 위임
+
+대부분의 사이드 프로젝트와 초기 스타트업은 **EC2 + Docker Compose + 관리형 DB** 조합으로 충분합니다. Kubernetes는 정말 필요할 때 도입해도 늦지 않습니다.
+
+가장 좋은 인프라는 **지금 상황에 맞는 인프라**입니다. 오버엔지니어링보다 빠른 실행이 더 중요한 단계에서는 단순함을 선택하세요!
