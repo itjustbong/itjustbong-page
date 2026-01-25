@@ -171,6 +171,13 @@ export default async function PostPage({ params }: PostPageProps) {
             {/* Post Content */}
             <div className="min-w-0">
               <div className="mx-auto max-w-4xl">
+                {/* AI 작성 안내 문구 */}
+                <div className="mb-8 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800/50 dark:bg-blue-950/30">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    <span className="mr-2">📝</span>
+                    이 글은 직접 경험한 내용을 바탕으로 조사하고 정리하여 작성되었으며, 글 다듬기 과정(Mermaid, 표 생성 등)에서 AI의 도움을 받았습니다.
+                  </p>
+                </div>
                 <PostContent content={post.content} />
               </div>
             </div>
