@@ -54,6 +54,12 @@ const categoryThemes = {
     accent: "#fed7aa",
     letter: "A",
   },
+  project: {
+    bg1: "#059669",
+    bg2: "#10b981",
+    accent: "#a7f3d0",
+    letter: "P",
+  },
 };
 
 const categoryLabels = {
@@ -62,6 +68,7 @@ const categoryLabels = {
   docker: "DOCKER",
   blockchain: "BLOCKCHAIN",
   ai: "AI",
+  project: "PROJECT",
 };
 
 const defaultTheme = {

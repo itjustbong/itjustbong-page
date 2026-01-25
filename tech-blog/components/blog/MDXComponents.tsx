@@ -144,6 +144,37 @@ function Tr({ children, ...props }: React.ComponentPropsWithoutRef<"tr">) {
   );
 }
 
+// Custom List components for better styling
+function Ul({ children, ...props }: React.ComponentPropsWithoutRef<"ul">) {
+  return (
+    <ul
+      className="my-4 ml-6 list-disc space-y-2 text-foreground/90 [&>li]:pl-1"
+      {...props}
+    >
+      {children}
+    </ul>
+  );
+}
+
+function Ol({ children, ...props }: React.ComponentPropsWithoutRef<"ol">) {
+  return (
+    <ol
+      className="my-4 ml-6 list-decimal space-y-2 text-foreground/90 [&>li]:pl-1"
+      {...props}
+    >
+      {children}
+    </ol>
+  );
+}
+
+function Li({ children, ...props }: React.ComponentPropsWithoutRef<"li">) {
+  return (
+    <li className="leading-relaxed" {...props}>
+      {children}
+    </li>
+  );
+}
+
 export const mdxComponents: MDXComponentsType = {
   pre: Pre,
   code: Code,
@@ -153,5 +184,8 @@ export const mdxComponents: MDXComponentsType = {
   th: Th,
   td: Td,
   tr: Tr,
+  ul: Ul,
+  ol: Ol,
+  li: Li,
   Toc,
 };
