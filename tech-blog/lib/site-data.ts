@@ -9,7 +9,7 @@ export interface DeveloperSite {
 
 export const developerSites: DeveloperSite[] = [
   {
-    name: "피키버스",
+    name: "Pickiverse",
     url: "https://www.pickiverse.com/",
     description: "피키버스 서비스",
   },
