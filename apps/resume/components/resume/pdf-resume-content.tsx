@@ -55,13 +55,13 @@ export const PdfResumeContent = forwardRef<HTMLDivElement>(
         }}
       >
         {/* Profile Section */}
-        <section style={{ marginBottom: "24px", paddingBottom: "16px", borderBottom: `1px solid ${colors.border}` }}>
+        <section style={{ marginBottom: "12px"}}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
               <h1 style={{ fontSize: "28px", fontWeight: 700, margin: 0, color: colors.foreground }}>
                 {profile.name}
               </h1>
-              <p style={{ fontSize: "16px", color: colors.muted, margin: "4px 0 0 0" }}>{profile.title}</p>
+              <span style={{ fontSize: "16px", color: colors.muted }}>{profile.title}</span>
             </div>
             <div style={{ display: "flex", gap: "16px", fontSize: "11px", color: colors.muted }}>
               <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -87,7 +87,7 @@ export const PdfResumeContent = forwardRef<HTMLDivElement>(
         </section>
 
         {/* Tech Stack Section */}
-        <section style={{ marginBottom: "24px" }}>
+        <section style={{ marginBottom: "12px" }}>
           <SectionTitle>Tech Stack</SectionTitle>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {techStacks.map((stack) => (
@@ -134,17 +134,42 @@ export const PdfResumeContent = forwardRef<HTMLDivElement>(
         </section>
 
         {/* Experience Section */}
-        <section style={{ marginBottom: "28px" }}>
+        <section style={{ marginBottom: "14px" }}>
           <SectionTitle>Experience</SectionTitle>
           <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-            {experiences.map((exp) => (
-              <div
-                key={exp.company}
-                style={{
-                  paddingLeft: "14px",
-                  borderLeft: `3px solid ${colors.accent}`,
-                }}
-              >
+            {experiences.map((exp, index) => {
+              // "대학 재학 중"이 포함된 첫 번째 경험의 인덱스 찾기
+              const firstUndergraduateIndex = experiences.findIndex((e) =>
+                e.period.includes("대학 재학 중")
+              );
+              const showGraduationDivider =
+                index === firstUndergraduateIndex && firstUndergraduateIndex > 0;
+
+              return (
+                <div key={exp.company}>
+                  {/* 졸업 구분선 */}
+                  {showGraduationDivider && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        marginBottom: "12px",
+                      }}
+                    >
+                      <div style={{ flex: 1, height: "1px", backgroundColor: colors.border }} />
+                      <span style={{ fontSize: "10px", color: colors.muted, whiteSpace: "nowrap" }}>
+                        대학 졸업
+                      </span>
+                      <div style={{ flex: 1, height: "1px", backgroundColor: colors.border }} />
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      paddingLeft: "14px",
+                      borderLeft: `3px solid ${colors.accent}`,
+                    }}
+                  >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                   <h3 style={{ fontSize: "15px", fontWeight: 600, margin: 0, color: colors.foreground }}>
                     {exp.company}
@@ -183,8 +208,10 @@ export const PdfResumeContent = forwardRef<HTMLDivElement>(
                     </ul>
                   </div>
                 )}
-              </div>
-            ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
 
