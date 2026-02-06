@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.21",
+    "@ai-sdk/react": "^3.0.75",
     "@google/genai": "^1.40.0",
     "@qdrant/js-client-rest": "^1.16.2",
     "@repo/shared": "workspace:*",
