@@ -66,11 +66,16 @@ function readKnowledgeSources(
  * POST /api/index
  *
  * 관리자 인증을 확인한 후 인덱싱 파이프라인을 실행한다.
- * knowledge.json에 등록된 모든 소스에 대해 수집, 청킹, 벡터화를
- * 순차적으로 수행하고 각 소스의 처리 결과를 반환한다.
+ *
+ * 요청 본문 (선택):
+ * - url?: string — 특정 소스만 인덱싱할 URL
+ * - force?: boolean — 해시 비교 없이 강제 재인덱싱
+ *
+ * 본문이 없거나 url이 없으면 전체 소스를 인덱싱한다.
  *
  * 응답:
  * - 200: 인덱싱 결과 배열
+ * - 400: 해당 URL의 소스를 찾을 수 없음
  * - 401: 인증 필요
  * - 500: 서버 오류
  */
@@ -90,13 +95,54 @@ export async function POST(
       );
     }
 
-    // 2. knowledge.json에서 소스 목록 읽기
-    const sources = readKnowledgeSources();
+    // 2. 요청 본문 파싱
+    let targetUrl: string | undefined;
+    let force = false;
 
-    // 3. 인덱싱 파이프라인 실행
-    const results = await runIndexingPipeline(sources);
+    try {
+      const body: unknown = await request.json();
+      const parsed = body as {
+        url?: string;
+        force?: boolean;
+      };
+      targetUrl = parsed.url;
+      force = parsed.force === true;
+    } catch {
+      // 본문이 없는 경우 전체 인덱싱
+    }
 
-    // 4. 결과 반환
+    // 3. knowledge.json에서 소스 목록 읽기
+    const allSources = readKnowledgeSources();
+
+    // 4. 대상 소스 결정
+    let sources: KnowledgeSource[];
+
+    if (targetUrl) {
+      const found = allSources.find(
+        (s) => s.url === targetUrl
+      );
+      if (!found) {
+        return NextResponse.json(
+          {
+            error:
+              "해당 URL의 지식 소스를 찾을 수 없습니다.",
+          },
+          { status: 400 }
+        );
+      }
+      sources = [found];
+    } else {
+      sources = allSources;
+    }
+
+    // 5. 인덱싱 파이프라인 실행
+    const results = await runIndexingPipeline(
+      sources,
+      undefined,
+      { force }
+    );
+
+    // 6. 결과 반환
     return NextResponse.json(
       { results },
       { status: 200 }

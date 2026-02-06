@@ -57,31 +57,40 @@ function buildVectorPoints(
   }));
 }
 
+/** 인덱싱 파이프라인 옵션 */
+interface IndexingOptions {
+  /** 해시 비교 없이 강제 재인덱싱 */
+  force?: boolean;
+}
+
 /**
  * 단일 URL 소스를 처리한다.
  *
  * 1. URL에서 콘텐츠를 수집한다
  * 2. 콘텐츠 해시를 비교하여 변경 여부를 확인한다
- * 3. 변경이 없으면 건너뛴다
+ * 3. 변경이 없으면 건너뛴다 (force가 true이면 건너뛰지 않음)
  * 4. 변경이 있으면 기존 데이터를 삭제하고 새로 인덱싱한다
  */
 async function processUrlSource(
   source: KnowledgeSource,
-  deps: Required<IndexerDependencies>
+  deps: Required<IndexerDependencies>,
+  options?: IndexingOptions
 ): Promise<IndexResult> {
   const { vectorStore, collector, chunker, embedder } = deps;
 
   // 1. 콘텐츠 수집
   const collected = await collector(source.url);
 
-  // 2. 해시 비교
-  const existingHash =
-    await vectorStore.getContentHashByUrl(source.url);
-  if (existingHash === collected.contentHash) {
-    return {
-      url: source.url,
-      status: "skipped",
-    };
+  // 2. 해시 비교 (force가 아닌 경우에만)
+  if (!options?.force) {
+    const existingHash =
+      await vectorStore.getContentHashByUrl(source.url);
+    if (existingHash === collected.contentHash) {
+      return {
+        url: source.url,
+        status: "skipped",
+      };
+    }
   }
 
   // 3. 기존 데이터 삭제
@@ -128,12 +137,13 @@ async function processUrlSource(
  *
  * 1. 텍스트 콘텐츠의 해시를 생성한다
  * 2. 기존 해시와 비교하여 변경 여부를 확인한다
- * 3. 변경이 없으면 건너뛴다
+ * 3. 변경이 없으면 건너뛴다 (force가 true이면 건너뛰지 않음)
  * 4. 변경이 있으면 기존 데이터를 삭제하고 새로 인덱싱한다
  */
 async function processTextSource(
   source: KnowledgeSource,
-  deps: Required<IndexerDependencies>
+  deps: Required<IndexerDependencies>,
+  options?: IndexingOptions
 ): Promise<IndexResult> {
   const { vectorStore, chunker, embedder, hashGenerator } = deps;
 
@@ -149,14 +159,16 @@ async function processTextSource(
   // 1. 해시 생성
   const contentHash = hashGenerator(content);
 
-  // 2. 해시 비교
-  const existingHash =
-    await vectorStore.getContentHashByUrl(source.url);
-  if (existingHash === contentHash) {
-    return {
-      url: source.url,
-      status: "skipped",
-    };
+  // 2. 해시 비교 (force가 아닌 경우에만)
+  if (!options?.force) {
+    const existingHash =
+      await vectorStore.getContentHashByUrl(source.url);
+    if (existingHash === contentHash) {
+      return {
+        url: source.url,
+        status: "skipped",
+      };
+    }
   }
 
   // 3. 기존 데이터 삭제
@@ -219,7 +231,8 @@ async function processTextSource(
  */
 async function runIndexingPipeline(
   sources: KnowledgeSource[],
-  dependencies?: IndexerDependencies
+  dependencies?: IndexerDependencies,
+  options?: IndexingOptions
 ): Promise<IndexResult[]> {
   const deps: Required<IndexerDependencies> = {
     vectorStore: dependencies?.vectorStore ?? new VectorStore(),
@@ -240,9 +253,17 @@ async function runIndexingPipeline(
       let result: IndexResult;
 
       if (source.type === "text") {
-        result = await processTextSource(source, deps);
+        result = await processTextSource(
+          source,
+          deps,
+          options
+        );
       } else {
-        result = await processUrlSource(source, deps);
+        result = await processUrlSource(
+          source,
+          deps,
+          options
+        );
       }
 
       results.push(result);
@@ -263,4 +284,4 @@ async function runIndexingPipeline(
 }
 
 export { runIndexingPipeline, buildVectorPoints };
-export type { IndexerDependencies };
+export type { IndexerDependencies, IndexingOptions };

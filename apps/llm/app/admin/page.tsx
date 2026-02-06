@@ -291,12 +291,16 @@ function SourceTable({
   sources,
   onDelete,
   onReindex,
+  onReindexSingle,
   deletingUrl,
+  indexingUrl,
 }: {
   sources: KnowledgeSource[];
   onDelete: (url: string) => void;
   onReindex: () => void;
+  onReindexSingle: (url: string) => void;
   deletingUrl: string | null;
+  indexingUrl: string | null;
 }) {
   if (sources.length === 0) {
     return (
@@ -378,16 +382,28 @@ function SourceTable({
                 </span>
               </td>
               <td className="px-3 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => onDelete(source.url)}
-                  disabled={deletingUrl === source.url}
-                  className="text-xs text-red-600 hover:text-red-800 disabled:opacity-40 dark:text-red-400 dark:hover:text-red-300"
-                >
-                  {deletingUrl === source.url
-                    ? "삭제 중..."
-                    : "삭제"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onReindexSingle(source.url)}
+                    disabled={indexingUrl === source.url}
+                    className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    {indexingUrl === source.url
+                      ? "인덱싱 중..."
+                      : "인덱싱"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(source.url)}
+                    disabled={deletingUrl === source.url}
+                    className="text-xs text-red-600 hover:text-red-800 disabled:opacity-40 dark:text-red-400 dark:hover:text-red-300"
+                  >
+                    {deletingUrl === source.url
+                      ? "삭제 중..."
+                      : "삭제"}
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
@@ -415,6 +431,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
+  const [indexingUrl, setIndexingUrl] = useState<string | null>(null);
   const [indexResults, setIndexResults] = useState<IndexResult[] | null>(null);
   const [fetchError, setFetchError] = useState("");
 
@@ -478,6 +495,27 @@ function Dashboard() {
     }
   };
 
+  const handleReindexSingle = async (url: string) => {
+    setIndexingUrl(url);
+    setIndexResults(null);
+    try {
+      const res = await fetch("/api/index", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, force: true }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIndexResults(data.results);
+        await fetchSources();
+      }
+    } catch {
+      // 에러 무시
+    } finally {
+      setIndexingUrl(null);
+    }
+  };
+
   return (
     <div className="min-h-dvh bg-zinc-50 dark:bg-zinc-950">
       <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
@@ -526,7 +564,9 @@ function Dashboard() {
               sources={sources}
               onDelete={handleDelete}
               onReindex={handleReindex}
+              onReindexSingle={handleReindexSingle}
               deletingUrl={deletingUrl}
+              indexingUrl={indexingUrl}
             />
           )}
 
