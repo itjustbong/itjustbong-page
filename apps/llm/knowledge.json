@@ -1,0 +1,14 @@
+{
+  "sources": [
+    {
+      "url": "https://blog.itjustbong.me/posts/tech-blog-without-database",
+      "title": "데이터베이스 없이 기술 블로그 만들기",
+      "category": "blog"
+    },
+    {
+      "url": "https://resume.itjustbong.me",
+      "title": "이력서",
+      "category": "resume"
+    }
+  ]
+}
