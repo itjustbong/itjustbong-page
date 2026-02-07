@@ -5,18 +5,28 @@
   "exports": {
     "./button": "./src/button.tsx",
     "./card": "./src/card.tsx",
-    "./input": "./src/input.tsx"
+    "./input": "./src/input.tsx",
+    "./header": "./src/header.tsx",
+    "./theme-toggle": "./src/theme-toggle.tsx",
+    "./info-popup": "./src/info-popup.tsx"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
   },
+  "dependencies": {
+    "@repo/shared": "workspace:*",
+    "lucide-react": "^0.562.0"
+  },
   "devDependencies": {
     "@repo/config": "workspace:*",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "typescript": "^5"
   },
   "peerDependencies": {
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "next": ">=14"
   }
 }

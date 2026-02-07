@@ -4,14 +4,22 @@
   "private": true,
   "exports": {
     "./utils": "./src/utils.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./site-data": "./src/site-data.ts"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit"
   },
+  "dependencies": {
+    "lucide-react": "^0.562.0"
+  },
   "devDependencies": {
     "@repo/config": "workspace:*",
+    "@types/react": "^19",
     "typescript": "^5"
+  },
+  "peerDependencies": {
+    "react": "^19"
   }
 }

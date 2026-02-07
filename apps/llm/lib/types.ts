@@ -108,6 +108,20 @@ interface AnswerRequest {
   conversationHistory: ConversationMessage[];
 }
 
+/** 출처 카드 정보 */
+interface SourceCard {
+  title: string;
+  url: string;
+  category: string;
+  snippet?: string;
+}
+
+/** 구조화된 답변 (출처와 본문 분리) */
+interface ParsedAnswer {
+  sources: SourceCard[];
+  content: string;
+}
+
 // ============================================================
 // Vector Store
 // ============================================================
@@ -181,4 +195,6 @@ export type {
   RateLimitResult,
   IndexResult,
   ValidationResult,
+  SourceCard,
+  ParsedAnswer,
 };
