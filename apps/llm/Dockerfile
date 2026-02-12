@@ -8,7 +8,7 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # pnpm 설치
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # 모노레포 루트 설정 파일 복사
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
@@ -28,7 +28,7 @@ RUN pnpm install --frozen-lockfile
 FROM base AS builder
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # 의존성 복사
 COPY --from=deps /app/node_modules ./node_modules
