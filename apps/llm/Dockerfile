@@ -20,7 +20,7 @@ COPY packages/ui/package.json ./packages/ui/package.json
 COPY packages/config/package.json ./packages/config/package.json
 
 # 의존성 설치
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 # ============================================================
 # 2단계: 빌드

@@ -16,7 +16,7 @@ COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 COPY packages/config/package.json ./packages/config/package.json
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 # ============================================================
 # 2단계: 빌드
