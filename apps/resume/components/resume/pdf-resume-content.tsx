@@ -174,7 +174,7 @@ export const PdfResumeContent = forwardRef<HTMLDivElement>(
                   <h3 style={{ fontSize: "15px", fontWeight: 600, margin: 0, color: colors.foreground }}>
                     {exp.company}
                   </h3>
-                  <span style={{ fontSize: "11px", color: colors.muted, fontFamily: "monospace" }}>
+                  <span style={{ fontSize: "11px", color: colors.muted, fontFamily: "monospace", whiteSpace: "nowrap" }}>
                     {exp.period}
                   </span>
                 </div>
@@ -278,7 +278,7 @@ export const PdfResumeContent = forwardRef<HTMLDivElement>(
               <h3 style={{ fontSize: "13px", fontWeight: 600, margin: 0, color: colors.foreground }}>
                 {education.school}
               </h3>
-              <span style={{ fontSize: "11px", color: colors.muted, fontFamily: "monospace" }}>
+              <span style={{ fontSize: "11px", color: colors.muted, fontFamily: "monospace", whiteSpace: "nowrap" }}>
                 {education.period}
               </span>
             </div>
@@ -307,7 +307,7 @@ export const PdfResumeContent = forwardRef<HTMLDivElement>(
                   <h4 style={{ fontSize: "12px", fontWeight: 600, margin: 0, color: colors.foreground }}>
                     {community.name}
                   </h4>
-                  <span style={{ fontSize: "10px", color: colors.muted, fontFamily: "monospace" }}>
+                  <span style={{ fontSize: "10px", color: colors.muted, fontFamily: "monospace", whiteSpace: "nowrap" }}>
                     {community.period}
                   </span>
                 </div>

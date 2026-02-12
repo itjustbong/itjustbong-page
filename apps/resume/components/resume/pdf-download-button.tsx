@@ -25,8 +25,10 @@ export function PdfDownloadButton({
     try {
       await generatePdf(targetRef.current, {
         filename,
-        scale: 2,
+        scale: 1.5,
         margin: 5,
+        imageFormat: "JPEG",
+        imageQuality: 0.85,
       });
 
       setStatus("success");

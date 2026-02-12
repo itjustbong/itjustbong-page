@@ -1,12 +1,14 @@
 "use client";
 
-import { toPng } from "html-to-image";
+import { toPng, toJpeg } from "html-to-image";
 import jsPDF from "jspdf";
 
 interface PdfGeneratorOptions {
   filename?: string;
   scale?: number;
   margin?: number;
+  imageQuality?: number;
+  imageFormat?: "JPEG" | "PNG";
 }
 
 /**
@@ -46,7 +48,13 @@ export async function generatePdf(
   element: HTMLElement,
   options: PdfGeneratorOptions = {}
 ): Promise<void> {
-  const { filename = "resume.pdf", scale = 2, margin = 5 } = options;
+  const {
+    filename = "resume.pdf",
+    scale = 1.5,
+    margin = 5,
+    imageQuality = 0.85,
+    imageFormat = "JPEG",
+  } = options;
 
   // A4 dimensions in mm
   const a4Width = 210;
@@ -81,27 +89,36 @@ export async function generatePdf(
     const manualBreakPoints = getPageBreakPoints(clone, contentHeight, 896, contentWidth);
     const hasManualBreaks = manualBreakPoints.length > 1;
 
-    // html-to-image로 PNG 생성 (oklch 색상 지원)
-    const dataUrl = await toPng(clone, {
+    // html-to-image로 이미지 생성 (oklch 색상 지원)
+    const captureOptions = {
       width: 896,
       height: clone.scrollHeight,
       pixelRatio: scale,
       backgroundColor: "#ffffff",
+      quality: imageQuality,
       style: {
         transform: "scale(1)",
         transformOrigin: "top left",
       },
-      filter: (node) => {
-        // 숨겨진 요소 제외 (페이지 브레이크 마커는 보이지 않아도 위치 계산됨)
+      filter: (node: HTMLElement): boolean => {
+        // 숨겨진 요소 제외
         if (node instanceof HTMLElement) {
           const style = window.getComputedStyle(node);
-          if (style.display === "none" || style.visibility === "hidden") {
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden"
+          ) {
             return false;
           }
         }
         return true;
       },
-    });
+    };
+
+    const dataUrl =
+      imageFormat === "JPEG"
+        ? await toJpeg(clone, captureOptions)
+        : await toPng(clone, captureOptions);
 
     // 이미지 로드
     const img = new Image();
@@ -187,10 +204,23 @@ export async function generatePdf(
         );
       }
 
-      const pageImgData = pageCanvas.toDataURL("image/png", 1.0);
-      const pageImgHeight = (pageCanvas.height * contentWidth) / canvas.width;
+      const mimeType =
+        imageFormat === "JPEG" ? "image/jpeg" : "image/png";
+      const pageImgData = pageCanvas.toDataURL(
+        mimeType,
+        imageFormat === "JPEG" ? imageQuality : 1.0
+      );
+      const pageImgHeight =
+        (pageCanvas.height * contentWidth) / canvas.width;
 
-      pdf.addImage(pageImgData, "PNG", margin, margin, imgWidth, pageImgHeight);
+      pdf.addImage(
+        pageImgData,
+        imageFormat,
+        margin,
+        margin,
+        imgWidth,
+        pageImgHeight
+      );
     }
 
     pdf.save(filename);

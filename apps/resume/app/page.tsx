@@ -29,8 +29,10 @@ export default function ResumePage() {
     try {
       await generatePdf(pdfRef.current, {
         filename: "봉승우_이력서.pdf",
-        scale: 2,
+        scale: 1.5,
         margin: 5,
+        imageFormat: "JPEG",
+        imageQuality: 0.85,
       });
     } catch (error) {
       console.error("PDF generation failed:", error);
