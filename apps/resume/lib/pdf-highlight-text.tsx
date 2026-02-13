@@ -94,18 +94,19 @@ function parseText(text: string): ParsedSegment[] {
 }
 
 // PDF용 인라인 스타일 (hex 색상만 사용)
+// **bold**와 `code`는 동일한 굵은 글씨로 통일
 const styles: Record<HighlightType | "text", CSSProperties> = {
   bold: {
     fontWeight: 600,
     color: "#1a1a1a",
   },
   italic: {
-    fontStyle: "normal",
-    color: "#0891b2",
+    fontStyle: "italic",
+    color: "#666666",
   },
   code: {
-    color: "#0891b2",
-    fontWeight: 500,
+    fontWeight: 600,
+    color: "#1a1a1a",
   },
   strike: {
     textDecoration: "line-through",

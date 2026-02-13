@@ -6,17 +6,12 @@ import type { ReactNode } from "react";
  * 텍스트 강조 유틸리티
  *
  * 마크다운 스타일 문법 지원:
- * - **텍스트** : Bold (검정색, 단순 강조)
- * - *텍스트* : 이탤릭
- * - `텍스트` : 코드/기술명 스타일 (파란 계열 하이라이팅)
+ * - **텍스트** : Bold (굵은 글씨로 강조)
+ * - *텍스트* : 이탤릭 (보조 강조)
+ * - `텍스트` : Bold (기술명·도구명 등, bold와 동일 스타일)
  * - ~~텍스트~~ : 취소선
  *
- * 예시:
- * "**FSD 아키텍처** 도입으로 *유지보수성* 향상, `TanStack Query` 활용"
- *
- * 사용 가이드:
- * - **bold**: 중요한 성과, 핵심 키워드 강조 (색상 없이 굵게만)
- * - `code`: 기술명, 도구명, 수치 등 특별히 눈에 띄어야 할 요소 (파란색 하이라이팅)
+ * **bold**와 `code`는 동일한 굵은 글씨로 통일하여 가독성을 높였습니다.
  */
 
 type HighlightType = "bold" | "italic" | "code" | "strike";
@@ -114,25 +109,27 @@ function parseText(text: string): ParsedSegment[] {
   return segments;
 }
 
+const boldClassName = "font-semibold text-foreground";
+
 function renderSegment(segment: ParsedSegment, index: number): ReactNode {
   switch (segment.type) {
     case "bold":
       return (
-        <strong key={index} className="font-semibold text-foreground">
+        <strong key={index} className={boldClassName}>
           {segment.content}
         </strong>
       );
     case "italic":
       return (
-        <span key={index} className="text-muted-foreground/90 underline underline-offset-2 decoration-muted-foreground/30">
+        <span key={index} className="text-muted-foreground italic">
           {segment.content}
         </span>
       );
     case "code":
       return (
-        <span key={index} className="text-accent font-medium">
+        <strong key={index} className={boldClassName}>
           {segment.content}
-        </span>
+        </strong>
       );
     case "strike":
       return (
