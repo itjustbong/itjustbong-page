@@ -29,6 +29,11 @@ export const developerSites: HubLink[] = [
 
 export const platformLinks: HubLink[] = [
   {
+    name: "허브",
+    url: "https://itjustbong.com/",
+    description: "itjustbong 서비스 허브",
+  },
+  {
     name: "테크 블로그",
     url: "https://log.itjustbong.com/",
     description: "MDX 기반 기술 블로그",
