@@ -238,7 +238,7 @@ interface CarouselConfig {
 }
 
 const PANEL_MAX_W = 560;
-const MOBILE_CARD_MAX_H = 680;
+const MOBILE_CARD_MAX_H = 540;
 const MOBILE_CARD_HEIGHT_RATIO = 0.68;
 
 const getConfig = (): CarouselConfig => {
