@@ -46,6 +46,10 @@ const hostOf = (url: string): string => {
 
 /* ── Service Data ─────────────────────────────────────── */
 
+const filteredPlatformLinks = platformLinks.filter(
+  (link) => !link.url.startsWith("https://itjustbong.com/")
+);
+
 const enrichService = (link: HubLink): ServiceItem => {
   const { url, name, description } = link;
   const desc = description ?? "";
@@ -58,7 +62,9 @@ const enrichService = (link: HubLink): ServiceItem => {
   return { name, url, description: desc, headline: name, summary: desc };
 };
 
-const services: ServiceItem[] = [...platformLinks, ...developerSites].map(enrichService);
+const services: ServiceItem[] = [...filteredPlatformLinks, ...developerSites].map(
+  enrichService
+);
 
 /* ── Slide Constants ──────────────────────────────────── */
 
@@ -239,7 +245,7 @@ interface CarouselConfig {
 
 const PANEL_MAX_W = 560;
 const MOBILE_CARD_MAX_H = 540;
-const MOBILE_CARD_HEIGHT_RATIO = 0.68;
+const MOBILE_CARD_HEIGHT_RATIO = 0.60;
 
 const getConfig = (): CarouselConfig => {
   const w = window.innerWidth;
