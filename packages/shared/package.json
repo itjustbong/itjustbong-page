@@ -5,7 +5,8 @@
   "exports": {
     "./utils": "./src/utils.ts",
     "./types": "./src/types.ts",
-    "./site-data": "./src/site-data.ts"
+    "./site-data": "./src/site-data.ts",
+    "./site-links": "./src/site-links.ts"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",
