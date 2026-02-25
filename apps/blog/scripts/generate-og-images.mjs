@@ -60,6 +60,12 @@ const categoryThemes = {
     accent: "#a7f3d0",
     letter: "P",
   },
+  algorithm: {
+    bg1: "#2563eb",
+    bg2: "#3b82f6",
+    accent: "#bfdbfe",
+    letter: "A",
+  },
 };
 
 const categoryLabels = {
@@ -69,6 +75,7 @@ const categoryLabels = {
   blockchain: "BLOCKCHAIN",
   ai: "AI",
   project: "PROJECT",
+  algorithm: "ALGORITHM",
 };
 
 const defaultTheme = {

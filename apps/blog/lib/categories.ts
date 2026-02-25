@@ -12,6 +12,7 @@ export const CATEGORY_LABEL_MAP: Record<string, string> = {
   cloud: "클라우드",
   architecture: "아키텍처",
   project: "프로젝트",
+  algorithm: "알고리즘",
 };
 
 /**
