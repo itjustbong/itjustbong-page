@@ -1,0 +1,107 @@
+---
+title: "[코딩테스트] 정렬(Sorting)"
+description: "다중 조건 정렬, 문자열 정렬, 카운팅 정렬, 빈도수 정렬, 안정 정렬 활용 등"
+category: "algorithm"
+tags: ["algorithm", "sorting", "timsort", "custom-sort", "coding-test"]
+createdAt: "2026-02-24"
+updatedAt: "2026-02-24"
+published: true
+---
+
+# 정렬 (Sorting) - 코딩테스트 핵심 정리
+
+## 개념 요약
+
+Python의 `sort()`/`sorted()`는 Timsort(O(n log n))를 사용하며, 코테에서는 직접 구현보다 내장 함수 활용이 핵심입니다.
+
+---
+
+## 문제 풀이 패턴
+
+### 패턴 1: 다중 조건 정렬 (10825)
+
+```python
+N = int(input())
+arr = [input().split() for _ in range(N)]
+
+# 국어 내림차순 → 영어 오름차순 → 수학 내림차순 → 이름 오름차순
+arr.sort(key=lambda x: (-int(x[1]), int(x[2]), -int(x[3]), x[0]))
+print('\n'.join(info[0] for info in arr))
+```
+
+> 핵심: 튜플로 정렬 기준을 나열. 내림차순은 `-` 부호.
+
+### 패턴 2: 문자열 정렬 (1181)
+
+```python
+arr = list(set(arr))                    # 중복 제거
+arr.sort(key=lambda x: (len(x), x))    # 길이순 → 사전순
+```
+
+### 패턴 3: 카운팅 정렬 (10989)
+
+값의 범위가 제한적일 때, 배열 인덱스로 카운팅하면 O(n)에 정렬 가능합니다.
+
+```python
+import sys
+N = int(input())
+count = [0] * 10001
+
+for _ in range(N):
+    count[int(sys.stdin.readline())] += 1
+
+for i in range(10001):
+    for _ in range(count[i]):
+        print(i)
+```
+
+### 패턴 4: 빈도수 정렬 (11652)
+
+```python
+import sys
+from collections import Counter
+
+N = int(input())
+nums = [int(sys.stdin.readline()) for _ in range(N)]
+result = sorted(Counter(nums).items(), key=lambda x: (-x[1], x[0]))
+print(result[0][0])
+```
+
+> 빈도 내림차순 → 값 오름차순.
+
+---
+
+## 실전 꿀팁
+
+### 꿀팁 1: sort() vs sorted()
+
+```python
+arr.sort()          # 원본 변경, 반환 None
+new = sorted(arr)   # 원본 유지, 새 리스트 반환
+```
+
+### 꿀팁 2: 정렬 안정성 (Stable Sort)
+
+Python의 sort는 안정 정렬입니다. 같은 키의 원소는 원래 순서가 유지됩니다.
+이를 활용하면 다중 조건 정렬을 단계적으로 할 수 있습니다.
+
+```python
+# 방법 1: 한 번에 (권장)
+arr.sort(key=lambda x: (x[1], x[0]))
+
+# 방법 2: 단계적 (안정 정렬 활용)
+arr.sort(key=lambda x: x[0])   # 2차 기준 먼저
+arr.sort(key=lambda x: x[1])   # 1차 기준 나중에
+```
+
+### 꿀팁 3: 문자열 내림차순 정렬
+
+```python
+# 숫자는 -를 붙이면 되지만, 문자열은 안 됨
+# 방법 1: reverse=True (단일 기준일 때)
+arr.sort(key=lambda x: x[0], reverse=True)
+
+# 방법 2: 다중 기준에서 문자열 내림차순이 필요하면
+# → 별도 정렬 단계로 분리하거나, 비교 함수 사용
+from functools import cmp_to_key
+```
